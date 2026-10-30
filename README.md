@@ -2,7 +2,7 @@
 
 Hold a key, speak, and polished text appears at your cursor in any Windows app.
 
-Private, personal project. Windows 11 x64, .NET 10, WinUI 3. The design is in [docs/plan.md](docs/plan.md); where
+Personal project. Windows 11 x64, .NET 10, WinUI 3. The design is in [docs/plan.md](docs/plan.md); where
 this README and the plan differ, this README describes what the app does.
 
 ## Install, upgrade, uninstall
