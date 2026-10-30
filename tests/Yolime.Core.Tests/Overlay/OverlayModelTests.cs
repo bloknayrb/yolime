@@ -69,7 +69,7 @@ public class OverlayModelTests
         Start(Mode.Reply);
         var v = _m.Apply(new ContextShown("Are we still on for lunch Friday at the usual place downtown near the office?", ContextSource.Clipboard, 12_000, Skipped: false));
         Assert.StartsWith("Replying to: 'Are we still on for lunch", v.Detail);
-        Assert.EndsWith("(clipboard, 12 s old)", v.Detail);
+        Assert.EndsWith("(copied 12 s ago)", v.Detail);
         Assert.True(v.Detail!.Length < 110);
         Assert.Equal("No context", _m.Apply(new ContextShown(null, null, 0, Skipped: false)).Detail);
         Assert.Contains("skipped", _m.Apply(new ContextShown(null, null, 0, Skipped: true)).Detail);
@@ -107,7 +107,7 @@ public class OverlayModelTests
         var v = _m.Apply(new RunFinished(Result(rewritten: false), null, "Slack", 5_000));
         Assert.Equal(OverlayState.Done, v.State);
         Assert.Equal("→ Slack · 4 words · 1.9 s", v.Title);
-        Assert.Equal(v.Title, v.Narration);
+        Assert.Equal("Pasted into Slack, 4 words", v.Narration);
         Assert.Equal(OverlayState.Done, _m.Apply(new Tick(6_199)).State);
         Assert.Equal(OverlayState.Hidden, _m.Apply(new Tick(6_200)).State);
     }
@@ -207,7 +207,7 @@ public class OverlayModelTests
         Start(Mode.Prompt);
         var v = _m.Apply(new PreviewShown("Draft."));
         Assert.Equal("Preview \u00b7 Prompt", v.Title);
-        Assert.StartsWith("Preview, Prompt: ", v.Narration);
+        Assert.StartsWith("Preview, Prompt. Enter to insert, C to copy, Escape to discard. ", v.Narration);
     }
 
     [Fact]
@@ -231,8 +231,8 @@ public class OverlayModelTests
         var v = _m.Apply(new PendingPasteStarted(10, 4_000));
         Assert.Equal(OverlayState.PendingPaste, v.State);
         Assert.Equal("Click where the reply should go", v.Title);
-        Assert.Equal("10 s", v.Detail);
-        Assert.Equal("7 s", _m.Apply(new Tick(7_000)).Detail);
+        Assert.Equal("10 s left, then it's copied", v.Detail);
+        Assert.Equal("7 s left, then it's copied", _m.Apply(new Tick(7_000)).Detail);
         Assert.False(v.Clickable);
     }
 
@@ -253,6 +253,21 @@ public class OverlayModelTests
         Assert.Equal(OverlayState.Error, v.State);
         Assert.Equal([OverlayButton.Dismiss], v.Buttons);
         Assert.Contains("prompt", v.Title);
+    }
+
+    /// <summary>The design pass's text fixes: titles stay one line, snippets end at a word, the clock has one format.</summary>
+    [Fact]
+    public void LongAppNames_AreShortened_SnippetsEndAtAWord_TheClockKeepsItsFormat()
+    {
+        const string app = "Contoso Enterprise Resource Planning Client (Finance Workspace)";
+        var v = _m.Apply(new RecordingStarted(Mode.Reply, app, false, 0));
+        Assert.Equal("Reply · Contoso Enterprise Resource Planning Cl…", v.Title);
+        v = _m.Apply(new ContextShown("Can you send me the final Q3 numbers before Thursday's budget meeting?", ContextSource.Selection, 0, false));
+        Assert.Equal("Replying to: 'Can you send me the final Q3 numbers before Thursday's…' (selected text)", v.Detail);
+        _m.Apply(new Level(0.02f, 100));
+        v = _m.Apply(new RecordingEnded(5_000));
+        Assert.Equal("0:05", v.Elapsed);
+        Assert.Equal("Transcribed", _m.Apply(new TranscriptShown("hello there")).Title);
     }
 
     /// <summary>A confirmation isn't a warning: Copied gets the info glyph and polite narration, Busy still warns.</summary>

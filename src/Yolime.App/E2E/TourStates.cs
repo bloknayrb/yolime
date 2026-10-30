@@ -60,17 +60,17 @@ internal static class TourStates
             [Rec(Mode.Dictate, "Outlook", t), new CapCountdown(10, t + 110_000), new Tick(t + 112_000), new Level(Voiced, t + 111_900)],
             v => v.Detail == "8 s left" && v.Elapsed == "1:52"),
         Listen("reply-selection", Mode.Reply, "Slack", new ContextShown(Snippet, ContextSource.Selection, 0, false),
-            shows: v => v.Detail?.StartsWith("Replying to: '", StringComparison.Ordinal) == true && v.Detail.Contains("(selection,", StringComparison.Ordinal)),
+            shows: v => v.Detail?.StartsWith("Replying to: '", StringComparison.Ordinal) == true && v.Detail.EndsWith("(selected text)", StringComparison.Ordinal)),
         Listen("reply-clipboard", Mode.Reply, "Slack", new ContextShown(Snippet, ContextSource.Clipboard, 42_000, false),
-            shows: v => v.Detail?.Contains("(clipboard, 42 s old)", StringComparison.Ordinal) == true),
-        Listen("reply-skipped", Mode.Reply, "Slack", new ContextShown(null, null, 0, true), shows: v => v.Detail == "Copied text skipped (looks like a key)"),
+            shows: v => v.Detail?.EndsWith("(copied 42 s ago)", StringComparison.Ordinal) == true),
+        Listen("reply-skipped", Mode.Reply, "Slack", new ContextShown(null, null, 0, true), shows: v => v.Detail == "Copied text skipped (looks like a password or key)"),
         Listen("reply-none", Mode.Reply, "Slack", new ContextShown(null, null, 0, false), shows: v => v.Detail == "No context"),
         new("work-transcribing", OverlayState.Working, None, false, t =>
             [Rec(Mode.Dictate, "Outlook", t), new Level(Voiced, t + 100), new RecordingEnded(t + 5000), new Tick(t + 6000)],
-            v => v.Title == "Transcribing…" && v.Detail is null && v.Elapsed == "6 s"),
+            v => v.Title == "Transcribing…" && v.Detail is null && v.Elapsed == "0:06"),
         new("work-transcript", OverlayState.Working, None, false, t =>
             [Rec(Mode.Dictate, "Outlook", t), new Level(Voiced, t + 100), new RecordingEnded(t + 5000), new TranscriptShown(Transcript), new Tick(t + 6000)],
-            v => v.Title == "Transcribing…" && v.Detail == Transcript),
+            v => v.Title == "Transcribed" && v.Detail == Transcript),
         Writing("work-writing", "Outlook", "Hi all, please send me ", "the weekly report before noon tomorrow."),
         Done("done-pasted", Mode.Dictate, "Outlook", DeliveryKind.Pasted, rewritten: false),
         Done("done-copied", Mode.Dictate, "Outlook", DeliveryKind.Copied, rewritten: false),
@@ -78,10 +78,10 @@ internal static class TourStates
         Preview("preview-short", Rewritten),
         Preview("preview-long", LongPreview),
         new("pending-paste", OverlayState.PendingPaste, None, false, t =>
-            [Rec(Mode.Reply, "Slack", t), new PendingPasteStarted(8, t + 1000), new Tick(t + 3000)], v => v.Detail == "6 s"),
-        Listen("long-listen", Mode.Prompt, LongApp, shows: v => v.Title == "Prompt · " + LongApp),
+            [Rec(Mode.Reply, "Slack", t), new PendingPasteStarted(8, t + 1000), new Tick(t + 3000)], v => v.Detail == "6 s left, then it's copied"),
+        Listen("long-listen", Mode.Prompt, LongApp, shows: v => v.Title == "Prompt · " + Short(LongApp)),
         Listen("long-listen-context", Mode.Reply, LongApp, new ContextShown(LongSnippet, ContextSource.Selection, 0, false),
-            shows: v => v.Title == "Reply · " + LongApp && v.Detail?.StartsWith("Replying to: '", StringComparison.Ordinal) == true),
+            shows: v => v.Title == "Reply · " + Short(LongApp) && v.Detail?.StartsWith("Replying to: '", StringComparison.Ordinal) == true),
         Writing("long-writing", LongApp, "Here is the link: ", Url),
         Done("long-done", Mode.Prompt, LongApp, DeliveryKind.Pasted, rewritten: true),
         Preview("long-preview-url", Url),
@@ -133,6 +133,9 @@ internal static class TourStates
             : e.Shows is { } shows && !shows(v) ? $"{v.State} text differs (title {v.Title.Length}, detail {v.Detail?.Length ?? 0} chars)"
             : null;
 
+    /// <summary>The model's rule for app names in titles: 40 characters at most.</summary>
+    private static string Short(string app) => app.Length <= 40 ? app : app[..39].TrimEnd() + "…";
+
     private static RecordingStarted Rec(Mode mode, string app, long t, bool latched = false, bool micReady = true) => new(mode, app, latched, t, Guid.Empty, micReady);
 
     /// <summary>Listening with a 0:04 clock; the voiced level goes last (context and the clock rebuild the view without it).</summary>
@@ -147,7 +150,7 @@ internal static class TourStates
             [Rec(Mode.Prompt, app, t), new Level(Voiced, t + 100), new RecordingEnded(t + 5000), new TranscriptShown(Transcript),
              new StageBegan(Stage.Rewrite, t + 6000), new DeltaArrived(first, t + 6100), new DeltaArrived(second, t + 6400), new Tick(t + 6500)],
             // A line over 120 characters shows its end, after an ellipsis.
-            v => v.Title == $"Writing for {app}…" && v.Detail is { } d && (d.StartsWith(first.Trim(), StringComparison.Ordinal) || d.StartsWith('…')));
+            v => v.Title == $"Writing for {Short(app)}…" && v.Detail is { } d && (d.StartsWith(first.Trim(), StringComparison.Ordinal) || d.StartsWith('…')));
 
     /// <summary>A finished run with its word count and time; a rewritten paste with a history id offers Use raw.</summary>
     private static Entry Done(string name, Mode mode, string app, DeliveryKind delivery, bool rewritten) =>
@@ -157,7 +160,7 @@ internal static class TourStates
             var timing = new RunTiming { RunId = run, Mode = mode, StartedUtc = DateTimeOffset.UtcNow, Outcome = RunOutcome.Completed, OutputWords = 14, OutputDoneMs = 1840 };
             var result = new RunResult { RunId = run, Outcome = RunOutcome.Completed, Mode = mode, Delivery = delivery, Rewritten = rewritten, HistoryId = 7, Timing = timing };
             return [Rec(mode, app, t), new Level(Voiced, t + 100), new RecordingEnded(t + 4000), new RunFinished(result, null, app, t + 5800)];
-        }, v => delivery == DeliveryKind.Copied ? v.Title == "Copied · press Ctrl+V" : v.Title == $"→ {app} · 14 words · 1.8 s");
+        }, v => delivery == DeliveryKind.Copied ? v.Title == "Copied · press Ctrl+V" : v.Title == $"→ {Short(app)} · 14 words · 1.8 s");
 
     private static Entry Preview(string name, string text) =>
         new(name, OverlayState.Preview, PreviewButtons, false, t => [Rec(Mode.Raw, "Outlook", t), new Level(Voiced, t + 100), new PreviewShown(text)],

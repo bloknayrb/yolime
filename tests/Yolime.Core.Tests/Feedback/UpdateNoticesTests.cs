@@ -62,7 +62,7 @@ public class UpdatingOverlayTests
     {
         var v = _m.Apply(new UpdatingShown(V020, AtMs: 0));
         Assert.Equal(OverlayState.Updating, v.State);
-        Assert.Equal("Updating to 0.2.0. yolime will close and reopen in a moment.", v.Title);
+        Assert.Equal("Updating to 0.2.0: yolime will close and reopen in a moment.", v.Title);
         Assert.Empty(v.Buttons);
         Assert.False(v.Clickable);
         Assert.Equal(v.Title, v.Narration);

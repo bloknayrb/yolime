@@ -191,9 +191,10 @@ public sealed class OverlayModel(float silenceRms)
                 Current = Listening() with { Level = l.Rms };
                 break;
             case ContextShown c when Current.State == OverlayState.Listening:
-                _contextLine = c.Skipped ? "Copied text skipped (looks like a key)"
+                // A selection is current, so only the clipboard's age is worth saying.
+                _contextLine = c.Skipped ? "Copied text skipped (looks like a password or key)"
                     : c.Snippet is null ? "No context"
-                    : $"Replying to: '{Snip(c.Snippet)}' ({(c.Source == ContextSource.Clipboard ? "clipboard" : "selection")}, {c.AgeMs / 1000} s old)";
+                    : $"Replying to: '{Snip(c.Snippet)}' ({(c.Source == ContextSource.Clipboard ? $"copied {c.AgeMs / 1000} s ago" : "selected text")})";
                 Current = Listening();
                 break;
             case CapCountdown cap when Current.State == OverlayState.Listening:
@@ -206,11 +207,12 @@ public sealed class OverlayModel(float silenceRms)
                 break;
             case TranscriptShown t when Current.State == OverlayState.Working:
                 _transcript = LastLine(t.Text);
-                Current = Current with { Detail = _transcript };
+                // The text is here: it's no longer being transcribed.
+                Current = Current with { Title = Current.Title == "Transcribing…" ? "Transcribed" : Current.Title, Detail = _transcript };
                 break;
             case StageBegan { Stage: Stage.Rewrite } b when Current.State == OverlayState.Working:
                 _nowMs = b.AtMs;
-                Current = Working(_app.Length == 0 ? "Writing…" : $"Writing for {_app}…", _transcript);
+                Current = Working(_app.Length == 0 ? "Writing…" : $"Writing for {ShortApp(_app)}…", _transcript);
                 break;
             case DeltaArrived d when Current.State == OverlayState.Working:
                 _stream.Append(d.Text);
@@ -229,7 +231,7 @@ public sealed class OverlayModel(float silenceRms)
             case PreviewShown p:
                 // Named with its mode: a held Shift previews the mode the user is in, and the card should say so.
                 Current = new OverlayView(OverlayState.Preview, _mode, "Preview \u00b7 " + _mode, "Enter insert · Esc discard · C copy", null, 0, p.Text,
-                    [OverlayButton.Insert, OverlayButton.Copy, OverlayButton.Discard], true, $"Preview, {_mode}: " + p.Text, false, null, false);
+                    [OverlayButton.Insert, OverlayButton.Copy, OverlayButton.Discard], true, $"Preview, {_mode}. Enter to insert, C to copy, Escape to discard. " + p.Text, false, null, false);
                 break;
             case PreviewEnded when Current.State == OverlayState.Preview:
             case PendingPasteEnded when Current.State == OverlayState.PendingPaste:
@@ -238,7 +240,7 @@ public sealed class OverlayModel(float silenceRms)
                 break;
             case UpdatingShown u:
                 _nowMs = u.AtMs;
-                var updating = $"Updating to {u.Version}. yolime will close and reopen in a moment.";
+                var updating = $"Updating to {u.Version}: yolime will close and reopen in a moment.";
                 Current = new OverlayView(OverlayState.Updating, null, updating, null, null, 0, null, [], false, updating, false, null, false);
                 break;
             // After the deadline holds are back, so setup's late exit can find a dictation on screen: it keeps its card
@@ -253,7 +255,7 @@ public sealed class OverlayModel(float silenceRms)
                 break;
             case PendingPasteStarted pp:
                 _pendingUntilMs = pp.AtMs + pp.Seconds * 1000L;
-                Current = new OverlayView(OverlayState.PendingPaste, _mode, "Click where the reply should go", $"{pp.Seconds} s", null, 0, null,
+                Current = new OverlayView(OverlayState.PendingPaste, _mode, "Click where the reply should go", PendingLeft(pp.Seconds), null, 0, null,
                     [], false, "Click where the reply should go", false, null, false);
                 break;
             case PointerOver po when Current.State == OverlayState.Error:
@@ -281,10 +283,10 @@ public sealed class OverlayModel(float silenceRms)
                 break;
             case OverlayState.Working:
                 if (_stream.Length > 0 && now - _lastStreamShownMs >= StreamThrottleMs) ShowStream(now);
-                Current = Current with { Elapsed = Seconds(now - _startMs) };
+                Current = Current with { Elapsed = Minutes(now - _startMs) };
                 break;
             case OverlayState.PendingPaste:
-                Current = Current with { Detail = $"{Math.Max(0, (_pendingUntilMs - now + 999) / 1000)} s" };
+                Current = Current with { Detail = PendingLeft(Math.Max(0, (_pendingUntilMs - now + 999) / 1000)) };
                 break;
             case OverlayState.Done or OverlayState.Error:
                 if (Current.OfferUseRaw && now >= _useRawUntilMs) Current = Current with { OfferUseRaw = false };
@@ -309,13 +311,16 @@ public sealed class OverlayModel(float silenceRms)
             return Current.State is OverlayState.Error or OverlayState.Listening ? Current : OverlayView.Hidden;
         var copied = r.Delivery == DeliveryKind.Copied;
         var seconds = (r.Timing?.OutputDoneMs ?? 0) / 1000.0;
+        var words = r.Timing?.OutputWords ?? 0;
         var title = copied ? "Copied · press Ctrl+V"
-            : $"→ {app} · {r.Timing?.OutputWords ?? 0} words · {seconds.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture)} s";
+            : $"→ {ShortApp(app)} · {words} words · {seconds.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture)} s";
+        // Narrator reads words, not the arrow and dots.
+        var narration = copied ? "Copied. Press Ctrl+V to paste." : app.Length == 0 ? $"Pasted, {words} words" : $"Pasted into {app}, {words} words";
         _hideAtMs = at + (copied ? CopiedMs : DoneMs);
         (_hovered, _hoverPausedMs) = (false, 0);
         var offer = r.Rewritten && r.Delivery == DeliveryKind.Pasted && r.HistoryId is not null;
         _useRawUntilMs = offer ? at + UseRawMs : 0;
-        return new OverlayView(OverlayState.Done, r.Mode, title, null, null, 0, null, [], false, title, offer, r.HistoryId, false);
+        return new OverlayView(OverlayState.Done, r.Mode, title, null, null, 0, null, [], false, narration, offer, r.HistoryId, false);
     }
 
     private OverlayView Card(Notice n, long? historyId, bool retryable, long at, long minimum)
@@ -354,13 +359,13 @@ public sealed class OverlayModel(float silenceRms)
         else if (_contextLine is not null) detail = _contextLine;
         else if (_latched) detail = "Tap to stop";
         else detail = null;
-        var title = _app.Length == 0 ? Label(_mode) : $"{Label(_mode)} · {_app}";
+        var title = _app.Length == 0 ? Label(_mode) : $"{Label(_mode)} · {ShortApp(_app)}";
         return new OverlayView(OverlayState.Listening, _mode, title, detail, Minutes(elapsed), 0, null, [], false,
             null, false, null, false);
     }
 
     private OverlayView Working(string title, string? detail) =>
-        new(OverlayState.Working, _mode, title, detail, Seconds(_nowMs - _startMs), 0, null, [], false, null, false, null, false);
+        new(OverlayState.Working, _mode, title, detail, Minutes(_nowMs - _startMs), 0, null, [], false, null, false, null, false);
 
     private void ShowStream(long now)
     {
@@ -372,13 +377,22 @@ public sealed class OverlayModel(float silenceRms)
 
     private static string Minutes(long ms) => $"{ms / 60_000}:{ms / 1000 % 60:00}";
 
-    private static string Seconds(long ms) => $"{ms / 1000} s";
-
+    /// <summary>Cut at a word, not mid-word, unless the first word alone is longer than the room.</summary>
     private static string Snip(string s)
     {
         s = s.ReplaceLineEndings(" ").Trim();
-        return s.Length <= SnippetChars ? s : s[..SnippetChars].TrimEnd() + "…";
+        if (s.Length <= SnippetChars) return s;
+        var cut = s.LastIndexOf(' ', SnippetChars);
+        return (cut > SnippetChars / 2 ? s[..cut] : s[..SnippetChars]).TrimEnd() + "…";
     }
+
+    /// <summary>What happens when the click doesn't come: the reply is copied instead.</summary>
+    private static string PendingLeft(long seconds) => $"{seconds} s left, then it's copied";
+
+    private const int AppChars = 40;
+
+    /// <summary>An app name short enough that the title stays on one line.</summary>
+    private static string ShortApp(string app) => app.Length <= AppChars ? app : app[..(AppChars - 1)].TrimEnd() + "…";
 
     private static string LastLine(string s)
     {
