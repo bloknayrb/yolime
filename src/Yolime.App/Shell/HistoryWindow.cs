@@ -612,7 +612,8 @@ internal sealed partial class HistoryWindow : Window
 
     private UIElement Actions(HistoryItem item, HistoryRow row)
     {
-        var bar = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        // Wrapped, not scrolled: a scrolling row hid Delete past the pane's edge with no sign it was there.
+        var bar = new WrapRow { Spacing = 8 };
         var paused = _host.Settings.Current.HistoryPaused;
 
         _reinsert = null;
@@ -657,16 +658,9 @@ internal sealed partial class HistoryWindow : Window
         }
         bar.Children.Add(ActionButton("Add word\u2026", () => AddWord(bar)));
         bar.Children.Add(ActionButton("Delete", () => DeleteAsync(item)));
-        // Wrapped, not scrolled: a scrolling row hid Delete past the pane's edge with no sign it was there.
-        var wrapped = new WrapRow { Spacing = 8 };
-        foreach (var child in bar.Children.ToList())
-        {
-            bar.Children.Remove(child);
-            wrapped.Children.Add(child);
-        }
         var actions = new StackPanel { Spacing = 6 };
         if (paused) actions.Children.Add(new TextBlock { Text = "History is paused: re-runs are off.", Opacity = 0.75 });
-        actions.Children.Add(wrapped);
+        actions.Children.Add(bar);
         return actions;
     }
 
