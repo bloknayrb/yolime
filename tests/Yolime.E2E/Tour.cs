@@ -129,10 +129,12 @@ internal static partial class Tour
     {
         var widths = Widths.Where(w => w.Theme == theme && w.Area == "overlay").ToDictionary(w => w.Entry, w => w.Width);
         var fixedOnes = widths.Where(w => w.Key.StartsWith("listen-", StringComparison.Ordinal) || w.Key.StartsWith("reply-", StringComparison.Ordinal)
-            || w.Key.StartsWith("work-", StringComparison.Ordinal) || w.Key.StartsWith("long-listen", StringComparison.Ordinal)).Select(w => w.Value).ToList();
+            || w.Key.StartsWith("work-", StringComparison.Ordinal) || w.Key.StartsWith("long-listen", StringComparison.Ordinal)
+            || w.Key == "long-writing").Select(w => w.Value).ToList();
         string? why = fixedOnes.Count == 0 ? "no Listening images"
             : fixedOnes.Max() - fixedOnes.Min() > 2 ? $"Listening/Working widths vary {fixedOnes.Min()}–{fixedOnes.Max()} px"
-            : widths.TryGetValue("done-pasted", out var done) && Math.Abs(done - fixedOnes[0]) <= 2 ? "Done is as wide as Listening: the check can't tell"
+            : !widths.TryGetValue("done-pasted", out var done) ? "no Done image to compare with: the check can't tell"
+            : Math.Abs(done - fixedOnes[0]) <= 2 ? "Done is as wide as Listening: the check can't tell"
             : null;
         Report.Add(new { name = $"overlay/one-listening-width-{theme}", pass = why is null, failure = why });
     }
