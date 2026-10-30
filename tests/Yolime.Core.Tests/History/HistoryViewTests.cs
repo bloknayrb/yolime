@@ -86,6 +86,17 @@ public class HistoryItemTests
         Assert.False(done.HasContext);
     }
 
+    /// <summary>One box when output and transcript are the same text, except after a failed rewrite, which must stay visible.</summary>
+    [Fact]
+    public void OutputMatchesTranscript_OnlyForTheSameText_AndNotAFallback()
+    {
+        Assert.True(Item(Row(output: "same", raw: "same")).OutputMatchesTranscript);
+        Assert.False(Item(Row(output: "Hello there", raw: "hello there")).OutputMatchesTranscript);
+        Assert.False(Item(Row(output: "same", raw: "same") with { FallbackUsed = true }).OutputMatchesTranscript);
+        Assert.False(Item(Row(output: null, raw: "same")).OutputMatchesTranscript);
+        Assert.False(Item(Row(output: "", raw: "")).OutputMatchesTranscript);
+    }
+
     [Fact]
     public void AReRun_SaysSoToNarrator() =>
         Assert.Equal("Today 11:00, Dictate, re-run, Outlook, Pasted, Hello there", Item(Row() with { RerunOf = 3 }).AccessibleName);

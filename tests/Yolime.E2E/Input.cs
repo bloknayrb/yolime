@@ -11,6 +11,7 @@ internal static class Input
     public const ushort C = 0x43;
     public const ushort A = 0x41;
     public const ushort Enter = 0x0D;
+    public const ushort F10 = 0x79;
 
     public static void Down(ushort vk) => Send(vk, up: false);
 

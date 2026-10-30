@@ -19,6 +19,7 @@ internal sealed partial class Scenarios
         new("History_LiveRefresh_ShowsANewRun", HistoryLiveRefresh),
         new("History_Reinsert_PastesIntoTheLastApp", HistoryReinsert),
         new("History_Delete_RemovesTheRow", HistoryDelete),
+        new("History_RowMenu_ActsOnTheClickedRow", HistoryRowMenu),
         new("Latency_PasteAfterRewrite_Under300ms", PasteLatency),
     ];
 
@@ -123,6 +124,36 @@ internal sealed partial class Scenarios
             if (Named(window, n => n == "Copy output") is not { } copy) return "no Copy output";
             Activate(copy);
             return Program.Wait(() => ClipText() == Transcript, 3000) ? null : $"clipboard is '{ClipText()}'";
+        });
+    }
+
+    /// <summary>
+    /// The row menu acts on the row it was opened on, and selects it first: open it (Shift+F10) on a row that isn't the
+    /// selected one, Copy output, and that row is now selected with its output on the clipboard.
+    /// </summary>
+    private string? HistoryRowMenu()
+    {
+        // Two fresh runs, so the second row is one whose output is known (an earlier scenario's Raw re-run would be).
+        if (Dictate() is { } fail) return fail;
+        if (Dictate() is { } fail2) return fail2;
+        SetClip(Sentinel);
+        return WithHistory(window =>
+        {
+            var rows = Rows(window);
+            if (rows.Length < 2) return $"only {rows.Length} rows";
+            SelectRow(rows[0]);
+            rows[1].Focus();
+            Thread.Sleep(300);
+            if (rows[1].Patterns.SelectionItem.Pattern.IsSelected.Value) return "focusing the row already selected it: the test can't tell";
+            Input.Down(Input.LShift);
+            Input.Tap(Input.F10);
+            Input.Up(Input.LShift);
+            AutomationElement? copy = null;
+            if (!Program.Wait(() => (copy = window.Automation.GetDesktop().FindFirstDescendant(cf => cf.ByName("Copy output").And(cf.ByControlType(ControlType.MenuItem)))) is not null, 3000))
+                return "the row menu never opened";
+            Activate(copy!);
+            if (!Program.Wait(() => ClipText() == Transcript, 3000)) return $"clipboard is '{ClipText()}'";
+            return Program.Wait(() => Rows(window)[1].Patterns.SelectionItem.Pattern.IsSelected.Value, 2000) ? null : "the menu didn't select its row";
         });
     }
 
