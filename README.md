@@ -134,7 +134,7 @@ are built in.
 
 **The notch** at the top (or bottom) centre of the screen shows Listening, the mode, progress and errors. Error cards
 have Retry; a bare tap of the hold key retries too (not with double-tap on, where a tap may start hands-free). After
-a rewritten paste, a **Use raw** pill is offered for 5 seconds (any key dismisses it): it copies the original
+a rewritten paste, a **Copy raw** pill is offered for 5 seconds (any key dismisses it): it copies the original
 transcript.
 
 **Preview.** Hold **Shift** as you let go of the hold key, or tick "Always preview" for a mode in Settings. The
