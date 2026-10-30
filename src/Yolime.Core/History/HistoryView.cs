@@ -24,7 +24,8 @@ public sealed record HistoryItem(
     bool CanRetryAudio,
     bool RecordingKept,
     bool HasContext,
-    IReadOnlyList<Mode> RerunModes)
+    IReadOnlyList<Mode> RerunModes,
+    bool OutputMatchesTranscript = false)
 {
     public const int FirstLineLength = 80;
 
@@ -56,7 +57,9 @@ public sealed record HistoryItem(
             RecordingKept: kept,
             HasContext: hasContext,
             // Reply needs a message to answer, and nothing can be re-run without a transcript.
-            RerunModes: !hasRaw ? [] : Enum.GetValues<Mode>().Where(m => m != row.Mode && (m != Mode.Reply || hasContext)).ToList());
+            RerunModes: !hasRaw ? [] : Enum.GetValues<Mode>().Where(m => m != row.Mode && (m != Mode.Reply || hasContext)).ToList(),
+            // One box is enough when they're the same text, but not after a failed rewrite: that fallback must stay visible.
+            OutputMatchesTranscript: hasOutput && hasRaw && row.Output == row.RawText && !row.FallbackUsed);
     }
 
     /// <summary>"Today 09:12", "Yesterday 14:32", "2 Oct 08:05", or "30 Dec 2025" for another year.</summary>

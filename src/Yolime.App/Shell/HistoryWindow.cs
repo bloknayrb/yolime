@@ -88,6 +88,7 @@ internal sealed partial class HistoryWindow : Window
             if (container.ContentTemplateRoot is Border root) root.Child = RowView(item);
             else container.Content = RowView(item);
             AutomationProperties.SetName(container, item.AccessibleName);
+            container.ContextFlyout = RowMenu(item);
             e.Handled = true;
         };
         _list.SelectionChanged += (_, _) => ShowSelected();
@@ -519,8 +520,12 @@ internal sealed partial class HistoryWindow : Window
 
         _detail.Children.Add(Actions(item, row));
 
-        if (row.Output is { Length: > 0 } output) _detail.Children.Add(TextSection("Output", output));
-        if (row.RawText is { Length: > 0 } raw) _detail.Children.Add(TextSection("Raw transcript", raw));
+        if (item.OutputMatchesTranscript) _detail.Children.Add(TextSection("Output (same as transcript)", row.Output!));
+        else
+        {
+            if (row.Output is { Length: > 0 } output) _detail.Children.Add(TextSection("Output", output));
+            if (row.RawText is { Length: > 0 } raw) _detail.Children.Add(TextSection("Raw transcript", raw));
+        }
         if (row.Output is { Length: > 0 } o && row.RawText is { Length: > 0 } r && o != r) _detail.Children.Add(DiffSection(r, o));
         if (item.HasContext) _detail.Children.Add(ContextSection(row));
     }
@@ -651,12 +656,10 @@ internal sealed partial class HistoryWindow : Window
         }
         if (item.CanRetryAudio)
         {
-            bar.Children.Add(ActionButton("Retry", async () =>
-            {
-                // The result shows where a run's result always does, not here: say so rather than leave "Retrying\u2026" up.
-                Say(InfoBarSeverity.Informational, "Retrying: the result shows on the notch.");
-                await Guarded(() => _host.Coordinator.RetryAsync(row.Id, CancellationToken.None));
-            }));
+            var retry = ActionButton("Retry", () => RetryAsync(row));
+            // Greyed while a retry or re-run is in progress, as Re-run is: a second click would only be refused as busy.
+            retry.IsEnabled = !_busy;
+            bar.Children.Add(retry);
         }
         bar.Children.Add(ActionButton("Add word\u2026", () => AddWord(bar)));
         bar.Children.Add(ActionButton("Delete", () => DeleteAsync(item)));
@@ -790,6 +793,54 @@ internal sealed partial class HistoryWindow : Window
         {
             _listGate.Release();
         }
+    }
+
+    private async Task RetryAsync(HistoryRow row)
+    {
+        if (_busy) return;
+        SetBusy(true);
+        // The result shows where a run's result always does, not here: say so rather than leave "Retrying\u2026" up.
+        Say(InfoBarSeverity.Informational, "Retrying: the result shows on the notch.");
+        // RetryAsync awaits the whole run, so busy ends when the run does.
+        try { await Guarded(() => _host.Coordinator.RetryAsync(row.Id, CancellationToken.None)); }
+        finally { SetBusy(false); }
+    }
+
+    /// <summary>
+    /// The row's right-click (and Shift+F10, menu key) menu: the detail pane's actions for that row. Opening it selects the
+    /// row first, as Explorer does, so the pane shows the run the menu acts on.
+    /// </summary>
+    private MenuFlyout RowMenu(HistoryItem item)
+    {
+        var menu = new MenuFlyout();
+        menu.Opening += (_, _) =>
+        {
+            _list.SelectedItem = _items.FirstOrDefault(i => i.Id == item.Id) ?? item;
+            menu.Items.Clear();
+            if (!_rows.TryGetValue(item.Id, out var row)) return;
+            var paused = _host.Settings.Current.HistoryPaused;
+            MenuFlyoutItem Entry(string text, bool enabled, Func<Task> action)
+            {
+                var entry = new MenuFlyoutItem { Text = text, IsEnabled = enabled };
+                entry.Click += (_, _) => Safe(action);
+                return entry;
+            }
+            menu.Items.Add(Entry("Copy output", item.CanCopyOutput, () => CopyAsync(row.Output!, "Output copied. It stays in Windows' clipboard history, if that's on.")));
+            menu.Items.Add(Entry("Copy transcript", item.CanCopyRaw, () => CopyAsync(row.RawText!, "Transcript copied. It stays in Windows' clipboard history, if that's on.")));
+            if (item.RerunModes.Count > 0)
+            {
+                var rerun = new MenuFlyoutSubItem { Text = "Re-run as", IsEnabled = !paused && !_busy };
+                foreach (var mode in item.RerunModes)
+                {
+                    var m = mode;
+                    rerun.Items.Add(Entry(RerunLabel(m), true, () => RerunAsync(row, m)));
+                }
+                menu.Items.Add(rerun);
+            }
+            menu.Items.Add(new MenuFlyoutSeparator());
+            menu.Items.Add(Entry("Delete", true, () => DeleteAsync(item)));
+        };
+        return menu;
     }
 
     private void SetBusy(bool busy)
