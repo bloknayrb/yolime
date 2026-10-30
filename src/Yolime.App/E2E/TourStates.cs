@@ -121,7 +121,8 @@ internal static class TourStates
             return new(name, OverlayState.Error, [OverlayButton.Dismiss], false, t => [new NoticeOnly(notice, t)]);
         var retryable = bool.Parse(parts[3]);
         // Key and settings problems open Settings instead of Retry (the model's rule, proved in Core).
-        var settings = Notices.SettingsPage(kind) is not null;
+        // HoldKeyReset has a page (its balloon opens General) but no card button, as in the model.
+        var settings = Notices.SettingsPage(kind) is not null && kind != NoticeKind.HoldKeyReset;
         OverlayButton[] buttons = [.. retryable && !settings ? [OverlayButton.Retry] : None, .. kind == NoticeKind.MicDenied ? [OverlayButton.OpenSettings] : None,
             .. settings ? [OverlayButton.OpenYolimeSettings] : None, OverlayButton.Dismiss];
         // NoSpeech with a history id is retryable, without one it isn't: the model's Retryable() decides, as show-card does.

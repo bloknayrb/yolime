@@ -250,8 +250,8 @@ internal sealed partial class OverlayController : INoticeSink, IDisposable
         }
 
         if (view.OfferUseRaw) _pill.Show(false, 280, _notch.Visible ? _notch.Bounds : PillAnchor());
-        if ((view.State == OverlayState.Error) != (previous.State == OverlayState.Error)) CardDismissable?.Invoke(view.State == OverlayState.Error);
         else _pill.Hide();
+        if ((view.State == OverlayState.Error) != (previous.State == OverlayState.Error)) CardDismissable?.Invoke(view.State == OverlayState.Error);
 
         if (view.Narration is { } say && say != previous.Narration) Announce(say, view.NarrateUrgently);
 

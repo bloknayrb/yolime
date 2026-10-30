@@ -154,6 +154,16 @@ internal sealed partial class Scenarios(TargetForm form)
         Input.Hold(Input.RCtrl, 1500);
         if (!Program.Wait(() => form.On(() => form.Box1.Text) == Transcript, 8000)) return "never pasted";
         if (!Program.Wait(() => Overlay.FindPill() != 0 && Overlay.Visible(Overlay.FindPill()), 3000)) return "no Copy raw pill";
+        Thread.Sleep(400);
+        // The pill names the tap ("Copy raw (tap Right Ctrl)"), and that longer label must still fit inside it.
+        using (var automation = new FlaUI.UIA3.UIA3Automation())
+        {
+            var pill = automation.FromHandle(Overlay.FindPill());
+            var button = pill.FindFirstDescendant(cf => cf.ByControlType(FlaUI.Core.Definitions.ControlType.Button));
+            if (button?.Name != "Copy raw (tap Right Ctrl)") return $"the pill says '{button?.Name}'";
+            var (b, w) = (button.BoundingRectangle, pill.BoundingRectangle);
+            if (b.Left < w.Left || b.Right > w.Right || b.Top < w.Top || b.Bottom > w.Bottom) return $"the pill's button {b} spills out of the pill {w}";
+        }
         Input.Tap(Input.RCtrl);
         if (!Program.Wait(() => ClipText() == Spoken, 3000)) return $"clipboard is '{ClipText()}'";
         if (form.On(() => form.Box1.Text) != Transcript) return "the tap changed the box";

@@ -293,7 +293,8 @@ internal sealed partial class TrayIcon : INoticeSink, ISounds, IDisposable
             // UpdateSlow is a balloon when a full-screen app hides the notch (OverlayController.Post).
             case { Kind: NoticeKind.UpdateFailed or NoticeKind.UpdateSlow }:
                 UpdateLogRequested?.Invoke();
-                break;            case { Kind: var kind } when Notices.SettingsPage(kind) is { } page:
+                break;
+            case { Kind: var kind } when Notices.SettingsPage(kind) is { } page:
                 SettingsPageRequested?.Invoke(page);
                 break;
         }

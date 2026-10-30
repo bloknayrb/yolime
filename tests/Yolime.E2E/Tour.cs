@@ -34,6 +34,9 @@ internal static partial class Tour
     private static readonly List<object> Report = [];
     private static readonly List<object> Index = [];
 
+    /// <summary>Each saved image's crop width, for checks across entries.</summary>
+    private static readonly List<(string Area, string Entry, string Theme, int Width)> Widths = [];
+
     public static int Run()
     {
         Directory.CreateDirectory(Results);
@@ -115,6 +118,23 @@ internal static partial class Tour
         // Nothing replaces Updating, so it goes last.
         if (areas.Contains("overlay")) entries.Add(("overlay", "updating"));
         foreach (var (area, name) in entries) CaptureState(results, theme, area, name);
+        if (areas.Contains("overlay")) OneListeningWidth(theme);
+    }
+
+    /// <summary>
+    /// Bryan's overlay-15: every Listening and Working card has the same width, so a line arriving mid-recording doesn't
+    /// resize it. Done sizes to its content, so it must differ, or the check proves nothing.
+    /// </summary>
+    private static void OneListeningWidth(string theme)
+    {
+        var widths = Widths.Where(w => w.Theme == theme && w.Area == "overlay").ToDictionary(w => w.Entry, w => w.Width);
+        var fixedOnes = widths.Where(w => w.Key.StartsWith("listen-", StringComparison.Ordinal) || w.Key.StartsWith("reply-", StringComparison.Ordinal)
+            || w.Key.StartsWith("work-", StringComparison.Ordinal) || w.Key.StartsWith("long-listen", StringComparison.Ordinal)).Select(w => w.Value).ToList();
+        string? why = fixedOnes.Count == 0 ? "no Listening images"
+            : fixedOnes.Max() - fixedOnes.Min() > 2 ? $"Listening/Working widths vary {fixedOnes.Min()}–{fixedOnes.Max()} px"
+            : widths.TryGetValue("done-pasted", out var done) && Math.Abs(done - fixedOnes[0]) <= 2 ? "Done is as wide as Listening: the check can't tell"
+            : null;
+        Report.Add(new { name = $"overlay/one-listening-width-{theme}", pass = why is null, failure = why });
     }
 
     /// <summary>
@@ -392,6 +412,7 @@ internal static partial class Tour
         // Kept even when a check fails: the image shows what went wrong.
         image.Save(Path.Combine(Dir(area), $"{FileName(name)}-{theme}.png"), ImageFormat.Png);
         Index.Add(new { area, entry = name, theme, file = $"{area}/{FileName(name)}-{theme}.png", rect = new[] { rect.L, rect.T, rect.R, rect.B }, probe, failure });
+        Widths.Add((area, name, theme, rect.R - rect.L));
         Report.Add(new { name = label, pass = failure is null, failure });
     }
 
