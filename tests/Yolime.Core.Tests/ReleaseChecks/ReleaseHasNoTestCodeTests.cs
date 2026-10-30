@@ -12,11 +12,14 @@ namespace Yolime.Core.Tests.ReleaseChecks;
 /// </summary>
 public class ReleaseHasNoTestCodeTests
 {
-    private static readonly string[] AppTestTypes = ["TestAudioRunner", "FileOutputSink", "ClipboardSink", "E2EMode", "FileMicDevice", "FileAudioSource", "FakeTranscriptionSessionFactory", "E2ERewriter", "FileFeedHandler", "FileConfig"];
+    private static readonly string[] AppTestTypes = ["TestAudioRunner", "FileOutputSink", "ClipboardSink", "E2EMode", "FileMicDevice", "FileAudioSource", "FakeTranscriptionSessionFactory", "E2ERewriter", "FileFeedHandler", "FileConfig", "TourStates"];
     private static readonly string[] CoreTestTypes = ["FakeTranscriptionSession", "FakeTranscriptionSessionFactory"];
 
     /// <summary>The E2E file hooks the harness drops into the results folder.</summary>
-    private static readonly string[] AppHookFiles = ["stall-ui", "show-card", "probe-fit", "shrink-card", "check-updates"];
+    private static readonly string[] AppHookFiles = ["stall-ui", "show-card", "probe-fit", "shrink-card", "check-updates", "tour-state", "tour-freeze", "probe-theme", "set-capture-hidden"];
+
+    /// <summary>Test members on product types: TestShrinkPx on OverlayWindow, the fit probe and the tour's fields and methods on OverlayController.</summary>
+    private static readonly string[] AppTestFields = ["TestShrinkPx", "TestFreezeTicks", "TestNotchTheme", "TestPillTheme", "TestApply", "TestSetCaptureHidden", "FitProbe"];
 
     /// <summary>The update scenarios' second way in, and the files of its fake feed.</summary>
     private static readonly string[] AppUpdateMarkers = ["e2e.json", "latest.json", "asset-"];
@@ -38,13 +41,15 @@ public class ReleaseHasNoTestCodeTests
         return (types, strings);
     }
 
-    /// <summary>Field names defined in the assembly (test switches that are members, not types or strings).</summary>
+    /// <summary>Field and method names defined in the assembly (test switches that are members, not types or strings).</summary>
     private static HashSet<string> ReadMembers(string dll)
     {
         using var pe = new PEReader(File.OpenRead(dll));
         var md = pe.GetMetadataReader();
         var names = new HashSet<string>(StringComparer.Ordinal);
         foreach (var h in md.FieldDefinitions) names.Add(md.GetString(md.GetFieldDefinition(h).Name));
+        // And methods: test entry points on product types (TestApply, TestSetCaptureHidden) are methods, not fields.
+        foreach (var h in md.MethodDefinitions) names.Add(md.GetString(md.GetMethodDefinition(h).Name));
         return names;
     }
 
@@ -64,7 +69,7 @@ public class ReleaseHasNoTestCodeTests
         Assert.DoesNotContain(app.Strings, s => s.Contains("--test-", StringComparison.Ordinal) || s.Contains("--e2e", StringComparison.Ordinal) || s.Contains("WDAGUtilityAccount", StringComparison.Ordinal));
         Assert.DoesNotContain(app.Strings, s => AppHookFiles.Contains(s));
         Assert.DoesNotContain(app.Strings, s => AppUpdateMarkers.Any(m => s.Contains(m, StringComparison.Ordinal)));
-        Assert.DoesNotContain("TestShrinkPx", ReadMembers(Path.Combine(dir, "Yolime.App.dll")));
+        Assert.DoesNotContain(AppTestFields, ReadMembers(Path.Combine(dir, "Yolime.App.dll")).Contains);
         var core = Read(Path.Combine(dir, "Yolime.Core.dll"));
         Assert.DoesNotContain(CoreTestTypes, core.Types.Contains);
     }
@@ -81,7 +86,9 @@ public class ReleaseHasNoTestCodeTests
         Assert.All(AppHookFiles, f => Assert.Contains(f, app.Strings));
         Assert.All(AppUpdateMarkers, m => Assert.Contains(app.Strings, s => s.Contains(m, StringComparison.Ordinal)));
         Assert.Contains("FileFeedHandler", app.Types);
-        Assert.Contains("TestShrinkPx", ReadMembers(Path.Combine(dir, "Yolime.App.dll")));
+        var members = ReadMembers(Path.Combine(dir, "Yolime.App.dll"));
+        Assert.All(AppTestFields, f => Assert.Contains(f, members));
+        Assert.Contains("TourStates", app.Types);
         Assert.Contains("FakeTranscriptionSession", Read(Path.Combine(dir, "Yolime.Core.dll")).Types);
     }
 }

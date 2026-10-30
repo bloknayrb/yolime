@@ -5,11 +5,15 @@
 # -Only runs just the named scenarios (fresh-app ones included when named), e.g. to watch a new test fail on main.
 # -Updates runs the in-app update scenarios instead, with their own stage (artifacts/e2e-updates) and results
 # (artifacts/e2e-updates-results): E2E payloads 0.1.0 and 0.1.1, their SandboxE2E setups, and install.ps1 to seed them.
-param([string[]]$Only, [switch]$Updates)
+# -Tour runs the UI tour instead (docs/superpowers/plans/2026-10-30-ui-tour.md): images for the design pass, in
+# artifacts/e2e-tour-results. -Areas overlay,cards,windows narrows it, so a fix PR re-runs only its area.
+param([string[]]$Only, [switch]$Updates, [switch]$Tour, [string[]]$Areas)
 $ErrorActionPreference = 'Stop'
+if ($Tour -and ($Updates -or $Only)) { throw '-Tour runs on its own: not with -Updates or -Only' }
+if ($Areas -and -not $Tour) { throw '-Areas is for -Tour' }
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
-$stage = Join-Path $repo $(if ($Updates) { 'artifacts\e2e-updates' } else { 'artifacts\e2e' })
-$results = Join-Path $repo $(if ($Updates) { 'artifacts\e2e-updates-results' } else { 'artifacts\e2e-results' })
+$stage = Join-Path $repo $(if ($Updates) { 'artifacts\e2e-updates' } elseif ($Tour) { 'artifacts\e2e-tour' } else { 'artifacts\e2e' })
+$results = Join-Path $repo $(if ($Updates) { 'artifacts\e2e-updates-results' } elseif ($Tour) { 'artifacts\e2e-tour-results' } else { 'artifacts\e2e-results' })
 
 # A Sandbox launched while the previous one is still tearing down starts but never runs its logon command (seen
 # twice as "no results"), so wait for every Sandbox process to be gone first.
@@ -72,6 +76,7 @@ Remove-Item -Recurse -Force $results -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force $results | Out-Null
 # Split on commas too: "pwsh -File run-e2e.ps1 -Only A,B" passes "A,B" as one string, not an array.
 if ($Only) { [IO.File]::WriteAllText((Join-Path $results 'only.txt'), (($Only | ForEach-Object { $_ -split ',' } | Where-Object { $_ }) -join "`n")) }
+if ($Areas) { [IO.File]::WriteAllText((Join-Path $results 'areas.txt'), (($Areas | ForEach-Object { $_ -split ',' } | Where-Object { $_ }) -join "`n")) }
 
 # Networking, clipboard sharing, the host mic and camera, and printers are all off: the run is sealed from the host.
 $wsb = @"
@@ -85,10 +90,10 @@ $wsb = @"
     <MappedFolder><HostFolder>$stage</HostFolder><SandboxFolder>C:\e2e</SandboxFolder><ReadOnly>true</ReadOnly></MappedFolder>
     <MappedFolder><HostFolder>$results</HostFolder><SandboxFolder>C:\results</SandboxFolder><ReadOnly>false</ReadOnly></MappedFolder>
   </MappedFolders>
-  <LogonCommand><Command>C:\e2e\harness\Yolime.E2E.exe$(if ($Updates) { ' --updates' })</Command></LogonCommand>
+  <LogonCommand><Command>C:\e2e\harness\Yolime.E2E.exe$(if ($Updates) { ' --updates' } elseif ($Tour) { ' --tour' })</Command></LogonCommand>
 </Configuration>
 "@
-$wsbPath = Join-Path $repo $(if ($Updates) { 'artifacts\e2e-updates.wsb' } else { 'artifacts\e2e.wsb' })
+$wsbPath = Join-Path $repo $(if ($Updates) { 'artifacts\e2e-updates.wsb' } elseif ($Tour) { 'artifacts\e2e-tour.wsb' } else { 'artifacts\e2e.wsb' })
 [IO.File]::WriteAllText($wsbPath, $wsb)
 # Sometimes a Sandbox boots but never runs its logon command. The harness writes "started" first thing, so a launch
 # with no marker after 4 minutes is retried once rather than waited out.
@@ -102,8 +107,8 @@ for ($launch = 1; $launch -le 2; $launch++) {
     Wait-SandboxGone
 }
 
-# Each update scenario installs a fresh copy and runs a real setup, so they get longer.
-$deadline = (Get-Date).AddMinutes($(if ($Updates) { 35 } else { 18 }))
+# Each update scenario installs a fresh copy and runs a real setup, so they get longer; the tour launches four apps.
+$deadline = (Get-Date).AddMinutes($(if ($Updates) { 35 } elseif ($Tour) { 40 } else { 18 }))
 while (-not (Test-Path (Join-Path $results 'DONE')) -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 5 }
 Stop-Sandboxes
 if (-not (Test-Path (Join-Path $results 'e2e.json'))) { throw 'no results: the harness did not finish' }
