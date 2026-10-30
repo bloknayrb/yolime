@@ -21,6 +21,8 @@ internal static class Program
         // The update scenarios (run-e2e.ps1 -Updates), and their medium-integrity target window.
         if (args.Length == 2 && args[0] == "--target") return TargetChild.Run(args[1]);
         if (args.Length == 1 && args[0] == "--updates") return UpdateScenarios.Run();
+        // The UI tour (run-e2e.ps1 -Tour): images for the design pass, not scenarios.
+        if (args.Length == 1 && args[0] == "--tour") return Tour.Run();
         Directory.CreateDirectory(Results);
         // Tells the host runner the logon command ran: a Sandbox that boots without running it is relaunched.
         File.WriteAllText(Path.Combine(Results, "started"), "started");

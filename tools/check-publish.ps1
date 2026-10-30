@@ -23,7 +23,7 @@ function Test-YolimePublish([string]$Path) {
     $haystack = [Text.Encoding]::GetEncoding(28591).GetString($bytes)
     # A second guard after the build-time one, with some of ReleaseHasNoTestCodeTests' markers (that test checks more).
     # Whole strings: Release does contain "yolime-main".
-    foreach ($marker in '--test-audio', 'yolime-main-e2e', '--e2e', 'e2e.json') {
+    foreach ($marker in '--test-audio', 'yolime-main-e2e', '--e2e', 'e2e.json', 'tour-state') {
         $needle = [Text.Encoding]::GetEncoding(28591).GetString([Text.Encoding]::Unicode.GetBytes($marker))
         if ($haystack.IndexOf($needle, [StringComparison]::Ordinal) -ge 0) { return "contains E2E-only code ($marker)" }
     }

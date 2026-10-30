@@ -150,6 +150,7 @@ internal static class E2EMode
             catch (IOException) { }
             try { CardHooks(dir, ui, overlay); }
             catch (Exception ex) when (ex is IOException or FormatException or UnauthorizedAccessException or ArgumentException) { }
+            TourHooks(dir, ui, overlay);
             try
             {
                 if (!File.Exists(stall)) return;
@@ -176,7 +177,11 @@ internal static class E2EMode
             catch (IOException) { }
         };
         // The overlay's state and buttons only, never its text (the same rule as the logs).
-        overlay.ViewChanged += v => Append(Path.Combine(dir, "overlay.txt"), $"{v.State} {string.Join(",", v.Buttons)} {(v.OfferUseRaw ? "UseRaw" : "")}\n");
+        overlay.ViewChanged += v =>
+        {
+            _lastView = v;
+            Append(Path.Combine(dir, "overlay.txt"), $"{v.State} {string.Join(",", v.Buttons)} {(v.OfferUseRaw ? "UseRaw" : "")}\n");
+        };
         File.WriteAllText(Path.Combine(dir, "overlay-hwnd"), overlay.Notch.Hwnd.ToString());
         coordinator.RunFinished += r => Write(Path.Combine(dir, $"run-{Interlocked.Increment(ref _runs)}.json"),
             JsonSerializer.Serialize(new Dictionary<string, string?>
@@ -192,6 +197,8 @@ internal static class E2EMode
                 ["micStart"] = r.Timing?.MicStart?.ToString(),
             }));
         coordinator.NoticeShown += n => Append(Path.Combine(dir, "notices.txt"), n.Kind + "\n");
+        // The tour's entry names, in capture order (the harness adds the cards from its own table).
+        File.WriteAllLines(Path.Combine(dir, "tour-states.txt"), TourStates.All.Select(e => e.Name));
         File.WriteAllText(Path.Combine(dir, "ready"), "ready");
     }
 
@@ -240,6 +247,117 @@ internal static class E2EMode
             File.Delete(shrink);
             File.WriteAllText(shrink + ".done", "done");
         }
+    }
+
+    private static Yolime.Core.Overlay.OverlayView? _lastView;
+
+    /// <summary>
+    /// The UI tour's hooks (docs/superpowers/plans/2026-10-30-ui-tour.md), each answered in "&lt;hook&gt;.done":
+    /// <list type="bullet">
+    /// <item>"tour-state" (an entry of <see cref="TourStates"/>): resets the notch to hidden, posts the entry's inputs,
+    /// then answers "ok" or "mismatch …" with the state and buttons (enum words only);</item>
+    /// <item>"tour-freeze" ("on"/"off"): drops the overlay timer's ticks, so a staged card stays as it is;</item>
+    /// <item>"probe-theme": the notch's and pill's theme as <c>ApplyTheme</c> last set it;</item>
+    /// <item>"set-capture-hidden" ("true"/"false"): both windows' capture exclusion, answered with Windows' result and the
+    /// view's state.</item>
+    /// </list>
+    /// Errors go to "&lt;hook&gt;.error" as the exception type only: an entry's text never reaches a file.
+    /// </summary>
+    private static void TourHooks(string dir, Microsoft.UI.Dispatching.DispatcherQueue ui, Shell.OverlayController overlay)
+    {
+        Hook(dir, "tour-freeze", arg =>
+        {
+            Shell.OverlayController.TestFreezeTicks = arg == "on";
+            return "ok";
+        });
+        HookOnUi(dir, "probe-theme", ui, _ => $"{overlay.TestNotchTheme}|{overlay.TestPillTheme}");
+        HookOnUi(dir, "set-capture-hidden", ui, arg =>
+        {
+            var ok = overlay.TestSetCaptureHidden(bool.Parse(arg));
+            return $"{(ok ? "ok" : "refused")} {_lastView?.State} {string.Join(",", _lastView?.Buttons ?? [])}";
+        });
+        var state = Path.Combine(dir, "tour-state");
+        try
+        {
+            if (!File.Exists(state)) return;
+            var name = File.ReadAllText(state).Trim();
+            File.Delete(state);
+            if (TourStates.Find(name) is not { } entry)
+            {
+                File.WriteAllText(state + ".error", "unknown entry");
+                return;
+            }
+            // All in one UI-thread step, applied directly: the answer follows the inputs, and an exception in the model
+            // lands in this step's catch rather than in a dispatcher item of its own.
+            HookAnswer(ui, state, () =>
+            {
+                // Updating ignores Dismissed: UpdatingEnded without a notice is what leaves it.
+                foreach (var reset in new Yolime.Core.Overlay.OverlayInput[]
+                         { new Yolime.Core.Overlay.UpdatingEnded(null, 0), new Yolime.Core.Overlay.PreviewEnded(), new Yolime.Core.Overlay.PendingPasteEnded(), new Yolime.Core.Overlay.Dismissed() })
+                    overlay.TestApply(reset);
+                foreach (var input in entry.Build(Shell.OverlayController.NowMs)) overlay.TestApply(input);
+                return _lastView is { } v && TourStates.Mismatch(entry, v) is { } why ? "mismatch " + why : "ok";
+            });
+        }
+        catch (Exception ex)
+        {
+            try { File.WriteAllText(state + ".error", ex.GetType().Name); }
+            catch (IOException) { }
+        }
+    }
+
+    /// <summary>A tour hook answered on the hook timer's thread.</summary>
+    private static void Hook(string dir, string name, Func<string, string> answer)
+    {
+        var path = Path.Combine(dir, name);
+        try
+        {
+            if (!File.Exists(path)) return;
+            var arg = File.ReadAllText(path).Trim();
+            File.Delete(path);
+            WriteDone(path, answer(arg));
+        }
+        catch (Exception ex)
+        {
+            try { File.WriteAllText(path + ".error", ex.GetType().Name); }
+            catch (IOException) { }
+        }
+    }
+
+    /// <summary>A tour hook answered on the UI thread (it reads or changes the overlay's windows).</summary>
+    private static void HookOnUi(string dir, string name, Microsoft.UI.Dispatching.DispatcherQueue ui, Func<string, string> answer)
+    {
+        var path = Path.Combine(dir, name);
+        try
+        {
+            if (!File.Exists(path)) return;
+            var arg = File.ReadAllText(path).Trim();
+            File.Delete(path);
+            HookAnswer(ui, path, () => answer(arg));
+        }
+        catch (Exception ex)
+        {
+            try { File.WriteAllText(path + ".error", ex.GetType().Name); }
+            catch (IOException) { }
+        }
+    }
+
+    private static void HookAnswer(Microsoft.UI.Dispatching.DispatcherQueue ui, string path, Func<string> answer) => ui.TryEnqueue(() =>
+    {
+        // On the UI thread with nothing above it: nothing here may take the app down.
+        try { WriteDone(path, answer()); }
+        catch (Exception ex)
+        {
+            try { File.WriteAllText(path + ".error", ex.GetType().Name); }
+            catch (IOException) { }
+        }
+    });
+
+    /// <summary>Written whole, then moved in: the harness must never read a half-written answer.</summary>
+    private static void WriteDone(string path, string text)
+    {
+        File.WriteAllText(path + ".tmp", text);
+        File.Move(path + ".tmp", path + ".done", overwrite: true);
     }
 
     private static void Append(string path, string text) => Retry(path, text, FileMode.Append);

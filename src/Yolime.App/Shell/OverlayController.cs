@@ -93,7 +93,13 @@ internal sealed partial class OverlayController : INoticeSink, IDisposable
 
         _timer = ui.CreateTimer();
         _timer.Interval = TimeSpan.FromMilliseconds(100);
-        _timer.Tick += (_, _) => Apply(new Tick(NowMs));
+        _timer.Tick += (_, _) =>
+        {
+#if YOLIME_E2E
+            if (TestFreezeTicks) return;
+#endif
+            Apply(new Tick(NowMs));
+        };
     }
 
     /// <summary>The notch's window, for the E2E probe and the hook's "is this click on the card" test.</summary>
@@ -154,6 +160,24 @@ internal sealed partial class OverlayController : INoticeSink, IDisposable
             stack.ActualWidth.ToString("0.00", c), (_root.XamlRoot?.RasterizationScale ?? 0).ToString("0.00", c), _uiSettings.TextScaleFactor.ToString("0.00", c),
             _root.ActualHeight.ToString("0.0", c) + ";" + string.Join(',', each));
     }
+
+    /// <summary>
+    /// E2E only: while set, the 100 ms timer's ticks are dropped, so a staged card stays as it is for the UI tour
+    /// (Render restarts the timer on every show, so stopping it wouldn't hold). Ticks the tour posts still apply.
+    /// </summary>
+    internal static volatile bool TestFreezeTicks;
+
+    /// <summary>E2E only: what <see cref="ApplyTheme"/> last chose for the notch and the pill, as "theme r,g,b".</summary>
+    internal string? TestNotchTheme, TestPillTheme;
+
+    /// <summary>E2E only: "hide from screen capture" on both windows, without the setting. False if Windows refused either.</summary>
+    internal bool TestSetCaptureHidden(bool on) => _notch.SetExcludeFromCapture(on) & _pill.SetExcludeFromCapture(on);
+
+    /// <summary>
+    /// E2E only, on the UI thread: applies an input now, skipping <see cref="Post"/>'s balloon (the Sandbox reports the
+    /// notch as unseeable, so every staged card would also queue a toast over the tour's later images).
+    /// </summary>
+    internal void TestApply(OverlayInput input) => Apply(input);
 #endif
 
     /// <summary>The bounds of whatever card is showing, for the hook to tell a click on it from a click elsewhere.</summary>
@@ -303,6 +327,12 @@ internal sealed partial class OverlayController : INoticeSink, IDisposable
         var text = new SolidColorBrush(fg);
         foreach (var tb in new[] { _title, _elapsed, _detail, _previewText }) tb.Foreground = text;
         _icon.Foreground = text;
+#if YOLIME_E2E
+        var chose = (new Windows.UI.ViewManagement.AccessibilitySettings().HighContrast ? "contrast"
+            : root.RequestedTheme == ElementTheme.Dark ? "dark" : "light") + $" {bg.R},{bg.G},{bg.B}";
+        if (root == _root) TestNotchTheme = chose;
+        else TestPillTheme = chose;
+#endif
     }
 
     /// <summary>Re-reads "hide from screen capture"; Settings calls it on the UI thread when the switch changes.</summary>
