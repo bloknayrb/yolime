@@ -139,8 +139,8 @@ internal sealed class WelcomeWindow : Window
         Text("yolime needs a transcription key. An OpenAI key is the default; Claude is optional and powers Prompt, Reply " +
              "and Dictate clean-up. Keys are stored in Windows Credential Manager for your account. Use project keys with " +
              "a spending limit.");
-        KeyRow(SttEndpoint.OpenAiKeyName, "OpenAI key");
-        KeyRow(ClaudeRewriter.KeyName, "Claude key (optional)");
+        KeyRow(SttEndpoint.OpenAiKeyName, "OpenAI (transcription)");
+        KeyRow(ClaudeRewriter.KeyName, "Claude (Prompt, Reply, Dictate clean-up), optional");
     }
 
     private void KeyRow(string slot, string label)
@@ -226,19 +226,23 @@ internal sealed class WelcomeWindow : Window
             Height = 48,
             CornerRadius = new CornerRadius(24),
             HorizontalAlignment = HorizontalAlignment.Left,
-            Background = new SolidColorBrush(Microsoft.UI.Colors.Gray),
-            Child = new TextBlock { Text = "Not held", HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Foreground = new SolidColorBrush(Microsoft.UI.Colors.White) },
+            // Theme brushes: the fixed grey and green read poorly (white on light green was about 2:1) and ignored dark mode.
+            Background = Brush("ControlFillColorSecondaryBrush"),
+            BorderBrush = Brush("ControlStrokeColorDefaultBrush"),
+            BorderThickness = new Thickness(1),
+            Child = new TextBlock { Text = "Not held", HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Foreground = Brush("TextFillColorPrimaryBrush") },
         };
         _body.Children.Add(light);
         _holdHandler = down => _ui.TryEnqueue(() =>
         {
-            light.Background = new SolidColorBrush(down ? Microsoft.UI.ColorHelper.FromArgb(255, 0x8B, 0xC3, 0x4A) : Microsoft.UI.Colors.Gray);
+            light.Background = Brush(down ? "AccentFillColorDefaultBrush" : "ControlFillColorSecondaryBrush");
+            ((TextBlock)light.Child).Foreground = Brush(down ? "TextOnAccentFillColorPrimaryBrush" : "TextFillColorPrimaryBrush");
             ((TextBlock)light.Child).Text = down ? "Held: it works" : "Not held";
         });
         _host.Hooks.HoldKeySeen += _holdHandler;
         _host.Hooks.SuppressRuns = true;
 
-        Text("If your keyboard has no Right Ctrl, choose Right Shift or Pause.");
+        Text("If that key doesn't suit your keyboard, choose another:");
         var choices = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
         foreach (var vk in new[] { HoldKeyRules.RightCtrl, HoldKeyRules.RightShift, HoldKeyRules.Pause })
         {
@@ -304,10 +308,17 @@ internal sealed class WelcomeWindow : Window
             }
             catch (Exception ex) when (ex is Yolime.Core.Audio.AudioCaptureException or System.Runtime.InteropServices.COMException)
             {
-                _ui.TryEnqueue(() => note.Text = "yolime couldn't open the microphone. Check Windows' microphone privacy setting.");
+                _ui.TryEnqueue(() => note.Text = MicTestProblem(ex));
             }
         });
     }
+
+    /// <summary>Why the mic test couldn't start: no microphone isn't a privacy setting.</summary>
+    internal static string MicTestProblem(Exception ex) => ex is Yolime.Core.Audio.AudioCaptureException { Error: Yolime.Core.Audio.CaptureError.NoDevice }
+        ? "No microphone found. Connect one, then try again."
+        : "yolime couldn't open the microphone. Check Windows' microphone privacy setting.";
+
+    private static Brush Brush(string key) => (Brush)Application.Current.Resources[key];
 
     private void StopMeter()
     {
