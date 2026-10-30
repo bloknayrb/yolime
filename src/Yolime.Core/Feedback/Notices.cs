@@ -84,7 +84,9 @@ public static class Notices
     /// A cancel says so only when history kept the run; one kept as a WAV alone, with history unavailable, stays
     /// silent and is surfaced by Housekeeping on the next start.
     /// </summary>
-    public static Notice? For(RunResult r) => Base(r) is { } n && r.HistoryId is null ? n with { NotKept = true } : Base(r);
+    // Only a paused history keeps nothing. A row that failed to save leaves its recording on disk, and Housekeeping
+    // gives it a row (so a Retry) on the next start.
+    public static Notice? For(RunResult r) => Base(r) is { } n && r.HistoryPaused ? n with { NotKept = true } : Base(r);
 
     private static Notice? Base(RunResult r) => r.Outcome switch
     {
@@ -178,7 +180,7 @@ public static class Notices
         NoticeKind.Copied => "Copied. Press Ctrl+V to paste.",
         NoticeKind.CopiedAdminWindow => "yolime can't type into admin windows. The text is copied: press Ctrl+V.",
         NoticeKind.PasswordRefused => "That's a password field: nothing was recorded or typed.",
-        NoticeKind.OutputFailed => "Couldn't paste or copy the result. It's in history.",
+        NoticeKind.OutputFailed => n.NotKept ? "Couldn't paste or copy the result, and history is paused, so it wasn't kept." : "Couldn't paste or copy the result. It's in history.",
         NoticeKind.Interrupted => Kept("Something went wrong.", n),
         NoticeKind.Discarded => "Recording discarded: you pressed another key or switched windows.",
         NoticeKind.CapWarning => $"{n.Seconds ?? 10} seconds left in this recording.",
@@ -226,7 +228,7 @@ public static class Notices
 
     /// <summary>Why, then the retry it offers: only when something was kept to retry.</summary>
     private static string Kept(string why, Notice n, string retry = "Your recording is kept: Retry from the tray.") =>
-        n.NotKept ? $"{why} The recording wasn't kept, so there's nothing to retry." : $"{why} {retry}";
+        n.NotKept ? $"{why} History is paused, so the recording wasn't kept." : $"{why} {retry}";
 
     private static string Ver(AppVersion? v) => v?.ToString() ?? "a new version";
 

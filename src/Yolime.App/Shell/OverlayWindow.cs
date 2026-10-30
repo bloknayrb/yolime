@@ -71,7 +71,6 @@ internal sealed partial class OverlayWindow : IDisposable
 
     public bool Visible { get; private set; }
 
-
     /// <summary>The window's rect in physical pixels, for hit-testing clicks against it.</summary>
     public (int Left, int Top, int Right, int Bottom) Bounds { get; private set; }
 
