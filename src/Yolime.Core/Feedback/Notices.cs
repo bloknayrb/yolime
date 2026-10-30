@@ -74,8 +74,9 @@ public enum NoticeKind
 /// <param name="UpdateFailure">For a failed update: why, from the result word's fixed set (recorded, not shown).</param>
 /// <param name="Problem">For an install attempt that stopped before setup ran: which step.</param>
 /// <param name="NotKept">For a failed run: nothing was kept to retry (history is paused), so the text mustn't offer Retry.</param>
+/// <param name="Retryable">For a finished run: the tray's Retry last failed can try it again (<see cref="Overlay.RunRetry"/>).</param>
 public sealed record Notice(NoticeKind Kind, Mode? Mode = null, int? Seconds = null, bool Copied = false, int? HoldKey = null,
-    AppVersion? Version = null, AppVersion? Current = null, UpdateFailure? UpdateFailure = null, UpdateProblem? Problem = null, bool NotKept = false);
+    AppVersion? Version = null, AppVersion? Current = null, UpdateFailure? UpdateFailure = null, UpdateProblem? Problem = null, bool NotKept = false, bool Retryable = false);
 
 public static class Notices
 {
@@ -86,7 +87,19 @@ public static class Notices
     /// </summary>
     // Only a paused history keeps nothing. A row that failed to save leaves its recording on disk, and Housekeeping
     // gives it a row (so a Retry) on the next start.
-    public static Notice? For(RunResult r) => Base(r) is { } n && r.HistoryPaused ? n with { NotKept = true } : Base(r);
+    public static Notice? For(RunResult r) => Base(r) is { } n ? n with { NotKept = r.HistoryPaused, Retryable = Overlay.RunRetry.IsRetryable(r) } : null;
+
+    /// <summary>
+    /// The Settings page that fixes what a notice reports, or null. The card offers it as a button (no Retry: a retry
+    /// would fail the same way until it's fixed) and a click on the balloon opens it.
+    /// </summary>
+    public static Overlay.SettingsPage? SettingsPage(NoticeKind kind) => kind switch
+    {
+        NoticeKind.NoKey or NoticeKind.KeyRejected or NoticeKind.RewriteNoKey or NoticeKind.RewriteKeyRejected => Overlay.SettingsPage.Keys,
+        NoticeKind.EndpointInvalid or NoticeKind.RewriteConfig => Overlay.SettingsPage.Advanced,
+        NoticeKind.HoldKeyReset => Overlay.SettingsPage.General,
+        _ => null,
+    };
 
     private static Notice? Base(RunResult r) => r.Outcome switch
     {
@@ -165,20 +178,20 @@ public static class Notices
         NoticeKind.MicFallback => "Your chosen microphone isn't connected, so yolime is using the default one.",
         NoticeKind.ElevatedTarget => "That window runs as administrator, so yolime can't paste into it. Results there are copied for you to paste.",
         NoticeKind.AlreadyRunning => "yolime is already running.",
-        NoticeKind.NoKey => "No transcription key yet. Add one in Settings, under Keys.",
-        NoticeKind.KeyRejected => "The transcription service rejected the API key. Check it in Settings, under Keys.",
+        NoticeKind.NoKey => "No transcription key yet. Add one in Settings, under Keys." + KeptForTray(n, "recording", "once the key is in"),
+        NoticeKind.KeyRejected => "The transcription service rejected the API key. Check it in Settings, under Keys." + KeptForTray(n, "recording", "once the key is in"),
         NoticeKind.OutOfCredit => Kept("The transcription account is out of credit.", n),
         NoticeKind.RateLimited => Kept("The transcription service is busy.", n, "Your recording is kept: Retry from the tray in a moment."),
         NoticeKind.ServiceUnreachable => Kept("Couldn't reach the transcription service.", n),
-        NoticeKind.EndpointInvalid => "The custom transcription address isn't valid (it must be https). Fix it in settings.json (Settings, under Advanced).",
+        NoticeKind.EndpointInvalid => "The custom transcription address isn't valid (it must be https). Fix it in settings.json (Settings, under Advanced)." + KeptForTray(n, "recording", "once that's fixed"),
         NoticeKind.TranscriptionFailed => Kept("Transcription failed.", n),
         NoticeKind.MicDenied => "Microphone access is off. Click to open Windows privacy settings.",
         NoticeKind.NoMic => "No microphone found.",
         NoticeKind.MicLost => Kept("The microphone disconnected.", n, "If anything was recorded, Retry from the tray."),
         NoticeKind.DidntHear => Kept("Didn't hear anything. Is the mic muted?", n, "Retry from the tray to send it anyway."),
         NoticeKind.Busy => $"Still working on your {Noun(n.Mode)}. Tap the hold key to cancel it. This recording wasn't kept.",
-        NoticeKind.Copied => "Copied. Press Ctrl+V to paste.",
-        NoticeKind.CopiedAdminWindow => "yolime can't type into admin windows. The text is copied: press Ctrl+V.",
+        NoticeKind.Copied => "Copied: press\u00a0Ctrl+V to paste.",
+        NoticeKind.CopiedAdminWindow => "yolime can't paste into admin windows. The text is copied: press\u00a0Ctrl+V.",
         NoticeKind.PasswordRefused => "That's a password field: nothing was recorded or typed.",
         NoticeKind.OutputFailed => n.NotKept ? "Couldn't paste or copy the result, and history is paused, so it wasn't kept." : "Couldn't paste or copy the result. It's in history.",
         NoticeKind.Interrupted => Kept("Something went wrong.", n),
@@ -198,7 +211,7 @@ public static class Notices
         NoticeKind.RewriteConfig => Rewrite("Claude rejected the request: check the Prompt model in Settings, under Advanced.", n),
         NoticeKind.RewriteEmpty => Rewrite("Claude returned nothing.", n),
         NoticeKind.HoldKeyReset => "Your hold key isn't supported any more, so it is Right Ctrl now. Pick another in Settings, under General.",
-        NoticeKind.RawCopied => "Raw transcript copied: press Ctrl+V.",
+        NoticeKind.RawCopied => "Raw transcript copied: press\u00a0Ctrl+V.",
         NoticeKind.PreviewKept => "Preview closed: nothing was inserted. The text is kept in history.",
         NoticeKind.ContextSkipped => "The copied text looked like it held a password or key, so it wasn't sent.",
         NoticeKind.UpdateAvailable => $"yolime {Ver(n.Version)} is available. Click to install, or use the tray menu.",
@@ -221,10 +234,20 @@ public static class Notices
     {
         null => $"{why} Nothing was changed.",
         Mode.Dictate when !n.Copied => $"{why} The raw transcript was pasted instead.",
-        Mode.Dictate => $"{why} The raw transcript is copied: press Ctrl+V.",
-        _ when n.NotKept => $"{why} The raw transcript is copied: press Ctrl+V.",
-        _ => $"{why} The raw transcript is copied: press Ctrl+V, or use Retry last failed in the tray.",
+        Mode.Dictate => $"{why} The raw transcript is copied: press\u00a0Ctrl+V.",
+        _ when n.NotKept => $"{why} The raw transcript is copied: press\u00a0Ctrl+V.",
+        // A key or settings problem: no Retry button on the card, so the way back is the tray, once it's fixed.
+        _ when SettingsPage(n.Kind) is not null => $"{why} The raw transcript is copied: press\u00a0Ctrl+V."
+            + KeptForTray(n, "transcript", n.Kind == NoticeKind.RewriteConfig ? "once that's fixed" : "once the key is in"),
+        _ => $"{why} The raw transcript is copied: press\u00a0Ctrl+V, or use Retry last failed in the tray.",
     };
+
+    /// <summary>
+    /// For a key or settings problem whose run can be retried: where to retry from, in words the card's Retry-button
+    /// substitution doesn't touch (that card has no Retry button).
+    /// </summary>
+    private static string KeptForTray(Notice n, string what, string when) =>
+        n.Retryable && !n.NotKept ? $" Your {what} is kept: {when}, choose Retry last failed in the tray menu." : "";
 
     /// <summary>Why, then the retry it offers: only when something was kept to retry.</summary>
     private static string Kept(string why, Notice n, string retry = "Your recording is kept: Retry from the tray.") =>

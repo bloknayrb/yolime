@@ -18,6 +18,12 @@ public sealed class PreviewCapture(int holdVk)
     /// <summary>The longest the card may hold keys. Enforced here, on the hook thread, not by the UI.</summary>
     public const long DeadlineMs = 20_000;
 
+    /// <summary>
+    /// The most hovering can add: the card still fails open within <see cref="DeadlineMs"/> + this, even with the pointer
+    /// parked on it or a pointer-leave that never arrives.
+    /// </summary>
+    public const long MaxHoverMs = 40_000;
+
     private const int VkEnter = 0x0D, VkEscape = 0x1B, VkC = 0x43;
     private const int VkPageUp = 0x21, VkPageDown = 0x22, VkUp = 0x26, VkDown = 0x28;
 
@@ -25,16 +31,38 @@ public sealed class PreviewCapture(int holdVk)
     // No settle: a real switch ends the card at once. A hidden flash only waits for the next tick's look.
     private readonly ForegroundRule _switch = new(settleMs: 0);
     private long _deadline;
+    // While the pointer is on the card the deadline doesn't advance: since when, and how much hovering has added so far.
+    private long _hoverSince = -1, _extended;
 
     public bool Active { get; private set; }
 
     public void Arm(long nowMs, int targetPid)
     {
-        (_deadline, Active) = (nowMs + DeadlineMs, true);
+        (_deadline, Active, _hoverSince, _extended) = (nowMs + DeadlineMs, true, -1, 0);
         _switch.Reset(targetPid);
     }
 
-    public void Disarm() => Active = false;
+    public void Disarm() => (Active, _hoverSince) = (false, -1);
+
+    /// <summary>The pointer entered or left the card: hovering pauses the deadline, within <see cref="MaxHoverMs"/>.</summary>
+    public void Hover(bool over, long nowMs)
+    {
+        if (!Active) return;
+        if (over && _hoverSince < 0) _hoverSince = nowMs;
+        else if (!over && _hoverSince >= 0)
+        {
+            var added = HoverAdds(nowMs);
+            (_deadline, _extended, _hoverSince) = (_deadline + added, _extended + added, -1);
+        }
+    }
+
+    /// <summary>Time left and whether it's paused, for the card's hint (a duration: the UI keeps a different clock).</summary>
+    public (long RemainingMs, bool Paused) Clock(long nowMs) =>
+        (Math.Max(0, Deadline(nowMs) - nowMs), _hoverSince >= 0 && _extended + (nowMs - _hoverSince) < MaxHoverMs);
+
+    private long HoverAdds(long nowMs) => _hoverSince < 0 ? 0 : Math.Min(nowMs - _hoverSince, MaxHoverMs - _extended);
+
+    private long Deadline(long nowMs) => _deadline + HoverAdds(nowMs);
 
     /// <param name="modifiers">Ctrl, Alt or a Windows key is down (Shift doesn't count: C is C either way).</param>
     public (bool Swallow, PreviewSignal? Signal) Key(int vk, bool up, bool injected, nint extraInfo, bool modifiers, long nowMs)
@@ -47,7 +75,7 @@ public sealed class PreviewCapture(int holdVk)
             return (true, null);
         }
         if (!Active || up) return (false, null);
-        if (nowMs >= _deadline) return (false, End());
+        if (nowMs >= Deadline(nowMs)) return (false, End());
         if (vk == holdVk || vk is 0x10 or 0xA0 or 0xA1) return (false, null);
         if (modifiers) return (false, End());
 
@@ -78,12 +106,12 @@ public sealed class PreviewCapture(int holdVk)
     public PreviewSignal? Tick(long nowMs, ForegroundSample foreground)
     {
         if (!Active) return null;
-        return nowMs >= _deadline || _switch.Tick(foreground, nowMs).Verdict == ForegroundVerdict.Switched ? End() : null;
+        return nowMs >= Deadline(nowMs) || _switch.Tick(foreground, nowMs).Verdict == ForegroundVerdict.Switched ? End() : null;
     }
 
     private PreviewSignal End()
     {
-        Active = false;
+        (Active, _hoverSince) = (false, -1);
         return PreviewSignal.Expired;
     }
 }

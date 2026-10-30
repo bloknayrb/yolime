@@ -141,6 +141,48 @@ public class PreviewCaptureTests
         Assert.Equal((false, null), Key(Enter));
     }
 
+    /// <summary>Hovering the card pauses its deadline; leaving moves the deadline on by the time hovered.</summary>
+    [Fact]
+    public void Hovering_PausesTheDeadline_ByTheTimeHovered()
+    {
+        _p.Arm(0, 7);
+        _p.Hover(true, 5_000);
+        Assert.Equal((15_000L, true), _p.Clock(5_000));
+        Assert.Null(_p.Tick(30_000, Window(7))); // past 20 s, but hovered
+        Assert.Equal((15_000L, true), _p.Clock(30_000));
+        _p.Hover(false, 30_000); // 25 s hovered
+        Assert.Equal((15_000L, false), _p.Clock(30_000));
+        Assert.Null(_p.Tick(44_999, Window(7)));
+        Assert.Equal(PreviewSignal.Expired, _p.Tick(45_000, Window(7)));
+    }
+
+    /// <summary>The card fails open by the cap even with the pointer parked on it, or a pointer-leave that never came.</summary>
+    [Fact]
+    public void Hovering_IsCapped_SoAParkedPointerCantHoldKeysForever()
+    {
+        _p.Arm(0, 7);
+        _p.Hover(true, 1_000);
+        Assert.Null(_p.Tick(PreviewCapture.DeadlineMs + PreviewCapture.MaxHoverMs - 1, Window(7)));
+        Assert.False(_p.Clock(PreviewCapture.DeadlineMs + PreviewCapture.MaxHoverMs - 1).Paused); // the cap is spent
+        Assert.Equal(PreviewSignal.Expired, _p.Tick(PreviewCapture.DeadlineMs + PreviewCapture.MaxHoverMs, Window(7)));
+        Assert.Equal((false, null), Key(Enter));
+    }
+
+    [Fact]
+    public void Hovering_TwiceAddsUp_WithinOneCap_AndArmStartsFresh()
+    {
+        _p.Arm(0, 7);
+        _p.Hover(true, 1_000);
+        _p.Hover(false, 31_000); // +30 s
+        _p.Hover(true, 32_000);
+        _p.Hover(false, 52_000); // +10 s: the cap's last 10 s, not 20
+        Assert.Equal(PreviewSignal.Expired, _p.Tick(PreviewCapture.DeadlineMs + PreviewCapture.MaxHoverMs, Window(7)));
+        _p.Arm(100_000, 7);
+        Assert.Equal((PreviewCapture.DeadlineMs, false), _p.Clock(100_000));
+        _p.Hover(false, 100_500); // a leave with no enter adds nothing
+        Assert.Equal(PreviewSignal.Expired, _p.Tick(100_000 + PreviewCapture.DeadlineMs, Window(7)));
+    }
+
     [Fact]
     public void Disarm_StopsCapture_ButStillSwallowsAPendingKeyUp()
     {

@@ -123,7 +123,7 @@ public class MicStartingTests
     {
         Start(ready: false, latched: true);
         Assert.Equal(Starting, Detail(400).Detail);
-        Assert.Equal("Tap to stop", _m.Apply(new AudioFlowing(800, Delivered: true, _run)).Detail);
+        Assert.Equal("Tap the hold key to stop", _m.Apply(new AudioFlowing(800, Delivered: true, _run)).Detail);
     }
 
     [Fact]
