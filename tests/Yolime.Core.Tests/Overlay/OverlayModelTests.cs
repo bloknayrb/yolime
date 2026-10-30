@@ -255,6 +255,18 @@ public class OverlayModelTests
         Assert.Contains("prompt", v.Title);
     }
 
+    /// <summary>A confirmation isn't a warning: Copied gets the info glyph and polite narration, Busy still warns.</summary>
+    [Fact]
+    public void ConfirmationCards_AreInformational()
+    {
+        var copied = _m.Apply(new NoticeOnly(new Notice(NoticeKind.Copied), 0));
+        Assert.True(copied.Informational);
+        Assert.False(copied.NarrateUrgently);
+        var busy = _m.Apply(new NoticeOnly(new Notice(NoticeKind.Busy, Mode.Prompt), 0));
+        Assert.False(busy.Informational);
+        Assert.True(busy.NarrateUrgently);
+    }
+
     [Fact]
     public void TheViewsTextNeverReachesToString()
     {

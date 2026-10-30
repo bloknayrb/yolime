@@ -73,8 +73,9 @@ public enum NoticeKind
 /// <param name="Current">For a failed update: the version still running.</param>
 /// <param name="UpdateFailure">For a failed update: why, from the result word's fixed set (recorded, not shown).</param>
 /// <param name="Problem">For an install attempt that stopped before setup ran: which step.</param>
+/// <param name="NotKept">For a failed run: nothing was kept to retry (history is paused), so the text mustn't offer Retry.</param>
 public sealed record Notice(NoticeKind Kind, Mode? Mode = null, int? Seconds = null, bool Copied = false, int? HoldKey = null,
-    AppVersion? Version = null, AppVersion? Current = null, UpdateFailure? UpdateFailure = null, UpdateProblem? Problem = null);
+    AppVersion? Version = null, AppVersion? Current = null, UpdateFailure? UpdateFailure = null, UpdateProblem? Problem = null, bool NotKept = false);
 
 public static class Notices
 {
@@ -83,7 +84,9 @@ public static class Notices
     /// A cancel says so only when history kept the run; one kept as a WAV alone, with history unavailable, stays
     /// silent and is surfaced by Housekeeping on the next start.
     /// </summary>
-    public static Notice? For(RunResult r) => r.Outcome switch
+    public static Notice? For(RunResult r) => Base(r) is { } n && r.HistoryId is null ? n with { NotKept = true } : Base(r);
+
+    private static Notice? Base(RunResult r) => r.Outcome switch
     {
         RunOutcome.NoSpeech => new(NoticeKind.DidntHear),
         RunOutcome.SttFailed => new(r.SttError switch
@@ -142,7 +145,7 @@ public static class Notices
     /// directions are dropped there.
     /// </summary>
     public static string Text(Notice n, bool onCard) => !onCard ? Text(n) : Text(n)
-        .Replace("use Retry last in the tray", "Retry", StringComparison.Ordinal)
+        .Replace("use Retry last failed in the tray", "Retry", StringComparison.Ordinal)
         .Replace(" from the tray", "", StringComparison.Ordinal)
         .Replace("Click to open Windows privacy settings.", "Turn it on in Windows privacy settings.", StringComparison.Ordinal)
         // The card has an "Open the log" button instead.
@@ -151,7 +154,7 @@ public static class Notices
 
     /// <summary>The balloon's icon: info for good news and confirmations, warning for anything that needs the user.</summary>
     public static bool IsInfo(NoticeKind kind) =>
-        kind is NoticeKind.Started or NoticeKind.Copied or NoticeKind.Cancelled or NoticeKind.UpdateAvailable or NoticeKind.Updated;
+        kind is NoticeKind.Started or NoticeKind.Copied or NoticeKind.Cancelled or NoticeKind.RawCopied or NoticeKind.UpdateAvailable or NoticeKind.Updated;
 
     public static string Text(Notice n) => n.Kind switch
     {
@@ -162,21 +165,21 @@ public static class Notices
         NoticeKind.AlreadyRunning => "yolime is already running.",
         NoticeKind.NoKey => "No transcription key yet. Add one in Settings, under Keys.",
         NoticeKind.KeyRejected => "The transcription service rejected the API key. Check it in Settings, under Keys.",
-        NoticeKind.OutOfCredit => "The transcription account is out of credit. Your recording is kept: Retry from the tray.",
-        NoticeKind.RateLimited => "The transcription service is busy. Your recording is kept: Retry from the tray in a moment.",
-        NoticeKind.ServiceUnreachable => "Couldn't reach the transcription service. Your recording is kept: Retry from the tray.",
-        NoticeKind.EndpointInvalid => "The custom transcription address isn't valid (it must be https). Fix it in settings.json.",
-        NoticeKind.TranscriptionFailed => "Transcription failed. Your recording is kept: Retry from the tray.",
+        NoticeKind.OutOfCredit => Kept("The transcription account is out of credit.", n),
+        NoticeKind.RateLimited => Kept("The transcription service is busy.", n, "Your recording is kept: Retry from the tray in a moment."),
+        NoticeKind.ServiceUnreachable => Kept("Couldn't reach the transcription service.", n),
+        NoticeKind.EndpointInvalid => "The custom transcription address isn't valid (it must be https). Fix it in settings.json (Settings, under Advanced).",
+        NoticeKind.TranscriptionFailed => Kept("Transcription failed.", n),
         NoticeKind.MicDenied => "Microphone access is off. Click to open Windows privacy settings.",
         NoticeKind.NoMic => "No microphone found.",
-        NoticeKind.MicLost => "The microphone disconnected. If anything was recorded, Retry from the tray.",
-        NoticeKind.DidntHear => "Didn't hear anything. Is the mic muted? Retry from the tray to send it anyway.",
-        NoticeKind.Busy => $"Still working on your {Noun(n.Mode)}. Tap the hotkey to cancel it. This recording wasn't kept.",
+        NoticeKind.MicLost => Kept("The microphone disconnected.", n, "If anything was recorded, Retry from the tray."),
+        NoticeKind.DidntHear => Kept("Didn't hear anything. Is the mic muted?", n, "Retry from the tray to send it anyway."),
+        NoticeKind.Busy => $"Still working on your {Noun(n.Mode)}. Tap the hold key to cancel it. This recording wasn't kept.",
         NoticeKind.Copied => "Copied. Press Ctrl+V to paste.",
         NoticeKind.CopiedAdminWindow => "yolime can't type into admin windows. The text is copied: press Ctrl+V.",
         NoticeKind.PasswordRefused => "That's a password field: nothing was recorded or typed.",
         NoticeKind.OutputFailed => "Couldn't paste or copy the result. It's in history.",
-        NoticeKind.Interrupted => "Something went wrong. Your recording is kept: Retry from the tray.",
+        NoticeKind.Interrupted => Kept("Something went wrong.", n),
         NoticeKind.Discarded => "Recording discarded: you pressed another key or switched windows.",
         NoticeKind.CapWarning => $"{n.Seconds ?? 10} seconds left in this recording.",
         NoticeKind.CapReached => "Reached the recording limit: it's being transcribed now.",
@@ -190,9 +193,9 @@ public static class Notices
         NoticeKind.RewriteTooLong => Rewrite("The rewrite ran too long and was cut off.", n),
         NoticeKind.RewriteTimedOut => Rewrite("Claude took too long to answer.", n),
         NoticeKind.RewriteUnavailable => Rewrite("Couldn't reach Claude.", n),
-        NoticeKind.RewriteConfig => Rewrite("Claude rejected the request: check promptModel in settings.json.", n),
+        NoticeKind.RewriteConfig => Rewrite("Claude rejected the request: check the Prompt model in Settings, under Advanced.", n),
         NoticeKind.RewriteEmpty => Rewrite("Claude returned nothing.", n),
-        NoticeKind.HoldKeyReset => "Your hold key isn't supported any more, so it is Right Ctrl now. Pick another in Settings.",
+        NoticeKind.HoldKeyReset => "Your hold key isn't supported any more, so it is Right Ctrl now. Pick another in Settings, under General.",
         NoticeKind.RawCopied => "Raw transcript copied: press Ctrl+V.",
         NoticeKind.PreviewKept => "Preview closed: nothing was inserted. The text is kept in history.",
         NoticeKind.ContextSkipped => "The copied text looked like it held a password or key, so it wasn't sent.",
@@ -217,8 +220,13 @@ public static class Notices
         null => $"{why} Nothing was changed.",
         Mode.Dictate when !n.Copied => $"{why} The raw transcript was pasted instead.",
         Mode.Dictate => $"{why} The raw transcript is copied: press Ctrl+V.",
-        _ => $"{why} The raw transcript is copied: press Ctrl+V, or use Retry last in the tray.",
+        _ when n.NotKept => $"{why} The raw transcript is copied: press Ctrl+V.",
+        _ => $"{why} The raw transcript is copied: press Ctrl+V, or use Retry last failed in the tray.",
     };
+
+    /// <summary>Why, then the retry it offers: only when something was kept to retry.</summary>
+    private static string Kept(string why, Notice n, string retry = "Your recording is kept: Retry from the tray.") =>
+        n.NotKept ? $"{why} The recording wasn't kept, so there's nothing to retry." : $"{why} {retry}";
 
     private static string Ver(AppVersion? v) => v?.ToString() ?? "a new version";
 

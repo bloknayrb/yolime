@@ -17,6 +17,7 @@ public enum OverlayButton { Retry, Dismiss, OpenSettings, Insert, Copy, Discard,
 /// </summary>
 /// <param name="Narration">What Narrator should announce for this view, or null. Never set while recording.</param>
 /// <param name="OfferUseRaw">The "Use raw" pill: shown beside Done for 5 s after a rewritten paste.</param>
+/// <param name="Informational">A card that confirms rather than warns: the info glyph instead of the warning one.</param>
 public sealed record OverlayView(
     OverlayState State,
     Mode? Mode,
@@ -30,7 +31,8 @@ public sealed record OverlayView(
     string? Narration,
     bool OfferUseRaw,
     long? HistoryId,
-    bool NarrateUrgently)
+    bool NarrateUrgently,
+    bool Informational = false)
 {
     public static readonly OverlayView Hidden = new(OverlayState.Hidden, null, "", null, null, 0, null, [], false, null, false, null, false);
 
@@ -328,7 +330,9 @@ public sealed class OverlayModel(float silenceRms)
         _hideAtMs = n.Kind == NoticeKind.UpdateSlow ? long.MaxValue / 4 : at + Math.Min(15_000, Math.Max(minimum, 6_000 + 40L * text.Length));
         if (n.Kind == NoticeKind.UpdateSlow) _slowTitle = text;
         (_hovered, _hoverPausedMs, _useRawUntilMs) = (false, 0, 0);
-        return new OverlayView(OverlayState.Error, n.Mode ?? _mode, text, null, null, 0, null, buttons, true, text, false, historyId, true);
+        // Good news and confirmations (Copied, Cancelled) get the info glyph and polite narration, as their balloons do.
+        var info = Notices.IsInfo(n.Kind);
+        return new OverlayView(OverlayState.Error, n.Mode ?? _mode, text, null, null, 0, null, buttons, true, text, false, historyId, !info, info);
     }
 
     /// <summary>The same set Retry last accepts: a kept recording, or a Prompt/Reply whose rewrite failed.</summary>

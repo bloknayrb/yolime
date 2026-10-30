@@ -246,8 +246,9 @@ internal sealed partial class OverlayController : INoticeSink, IDisposable
         {
             _buttons.Children.Add(b switch
             {
-                OverlayButton.Retry => Button("Retry", () => { if (_shown.HistoryId is { } id) Retry?.Invoke(id); Post(new Dismissed()); }),
-                OverlayButton.OpenSettings => Button("Open settings", () => { OpenMicSettings?.Invoke(); Post(new Dismissed()); }),
+                // Named with its key, as the preview's buttons are: a tap of the hold key retries too.
+                OverlayButton.Retry => Button($"Retry (tap {Yolime.Core.Hotkeys.HoldKeyRules.Name(_settings().HoldKeyVk)})", () => { if (_shown.HistoryId is { } id) Retry?.Invoke(id); Post(new Dismissed()); }),
+                OverlayButton.OpenSettings => Button("Open privacy settings", () => { OpenMicSettings?.Invoke(); Post(new Dismissed()); }),
                 OverlayButton.OpenLog => Button("Open the log", () => { OpenUpdateLog?.Invoke(); Post(new Dismissed()); }),
                 OverlayButton.Insert => Button("Insert (Enter)", () => PreviewChosen?.Invoke(Yolime.Core.Output.PreviewChoice.Insert)),
                 OverlayButton.Copy => Button("Copy (C)", () => PreviewChosen?.Invoke(Yolime.Core.Output.PreviewChoice.Copy)),
@@ -291,6 +292,7 @@ internal sealed partial class OverlayController : INoticeSink, IDisposable
 
     private static string Glyph(OverlayView view) => view.State switch
     {
+        OverlayState.Error when view.Informational => ((char)0xE946).ToString(), // Info
         OverlayState.Error => ((char)0xE7BA).ToString(), // Warning
         OverlayState.Done => ((char)0xE73E).ToString(), // CheckMark
         OverlayState.Updating => ((char)0xE946).ToString(), // Info

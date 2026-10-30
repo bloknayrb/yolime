@@ -75,7 +75,34 @@ public class NoticesTests
     {
         var n = Notices.For(Result(RunOutcome.NoSpeech))!;
         Assert.Equal(NoticeKind.DidntHear, n.Kind);
-        Assert.Contains("Retry", Notices.Text(Notices.For(Result(RunOutcome.SttFailed, SttError.Network))!));
+        Assert.Contains("Retry", Notices.Text(Notices.For(Result(RunOutcome.SttFailed, SttError.Network) with { HistoryId = 3 })!));
+    }
+
+    /// <summary>
+    /// Paused history keeps nothing (no history row, the recording deleted), so no failure offers Retry: the cards
+    /// said "Your recording is kept: Retry" with no recording and no Retry button.
+    /// </summary>
+    [Theory]
+    [InlineData(RunOutcome.SttFailed)]
+    [InlineData(RunOutcome.NoSpeech)]
+    [InlineData(RunOutcome.Interrupted)]
+    [InlineData(RunOutcome.CaptureFailed)]
+    public void NothingKept_OffersNoRetry(RunOutcome outcome)
+    {
+        var kept = Notices.For(Result(outcome, SttError.Network, CaptureError.DeviceLost) with { HistoryId = 3 })!;
+        var lost = Notices.For(Result(outcome, SttError.Network, CaptureError.DeviceLost))!;
+        Assert.Contains("Retry", Notices.Text(kept));
+        Assert.DoesNotContain("Retry", Notices.Text(lost));
+        Assert.DoesNotContain("Retry", Notices.Text(lost, onCard: true));
+    }
+
+    [Fact]
+    public void RewriteFallback_OffersRetryLastFailed_OnlyWhenKept()
+    {
+        var kept = Result(RunOutcome.CompletedWithFallback, mode: Mode.Prompt, delivery: DeliveryKind.Copied) with { RewriteError = RewriteFailure.Timeout, HistoryId = 3 };
+        Assert.Contains("Retry last failed in the tray", Notices.Text(Notices.For(kept)!));
+        Assert.EndsWith("or Retry.", Notices.Text(Notices.For(kept)!, onCard: true));
+        Assert.DoesNotContain("Retry", Notices.Text(Notices.For(kept with { HistoryId = null })!));
     }
 
     [Fact]
