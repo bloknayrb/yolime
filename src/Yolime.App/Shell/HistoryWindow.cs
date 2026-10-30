@@ -815,9 +815,10 @@ internal sealed partial class HistoryWindow : Window
         var menu = new MenuFlyout();
         menu.Opening += (_, _) =>
         {
-            _list.SelectedItem = _items.FirstOrDefault(i => i.Id == item.Id) ?? item;
             menu.Items.Clear();
-            if (!_rows.TryGetValue(item.Id, out var row)) return;
+            // The row as it is now: a live refresh may have swapped its item (new flags, new text) or removed it.
+            if (_items.FirstOrDefault(i => i.Id == item.Id) is not { } current || !_rows.TryGetValue(item.Id, out var row)) return;
+            _list.SelectedItem = current;
             var paused = _host.Settings.Current.HistoryPaused;
             MenuFlyoutItem Entry(string text, bool enabled, Func<Task> action)
             {
@@ -825,12 +826,12 @@ internal sealed partial class HistoryWindow : Window
                 entry.Click += (_, _) => Safe(action);
                 return entry;
             }
-            menu.Items.Add(Entry("Copy output", item.CanCopyOutput, () => CopyAsync(row.Output!, "Output copied. It stays in Windows' clipboard history, if that's on.")));
-            menu.Items.Add(Entry("Copy transcript", item.CanCopyRaw, () => CopyAsync(row.RawText!, "Transcript copied. It stays in Windows' clipboard history, if that's on.")));
-            if (item.RerunModes.Count > 0)
+            menu.Items.Add(Entry("Copy output", current.CanCopyOutput, () => CopyAsync(row.Output!, "Output copied. It stays in Windows' clipboard history, if that's on.")));
+            menu.Items.Add(Entry("Copy transcript", current.CanCopyRaw, () => CopyAsync(row.RawText!, "Transcript copied. It stays in Windows' clipboard history, if that's on.")));
+            if (current.RerunModes.Count > 0)
             {
                 var rerun = new MenuFlyoutSubItem { Text = "Re-run as", IsEnabled = !paused && !_busy };
-                foreach (var mode in item.RerunModes)
+                foreach (var mode in current.RerunModes)
                 {
                     var m = mode;
                     rerun.Items.Add(Entry(RerunLabel(m), true, () => RerunAsync(row, m)));
@@ -838,7 +839,7 @@ internal sealed partial class HistoryWindow : Window
                 menu.Items.Add(rerun);
             }
             menu.Items.Add(new MenuFlyoutSeparator());
-            menu.Items.Add(Entry("Delete", true, () => DeleteAsync(item)));
+            menu.Items.Add(Entry("Delete", true, () => DeleteAsync(current)));
         };
         return menu;
     }
