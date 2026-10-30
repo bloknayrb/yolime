@@ -9,7 +9,7 @@ namespace Yolime.Core.Overlay;
 /// <see cref="Updating"/>: setup is running; the card stays until yolime exits or setup fails.
 public enum OverlayState { Hidden, Listening, Working, Done, UseRaw, Error, Preview, PendingPaste, Updating }
 
-public enum OverlayButton { Retry, Dismiss, OpenSettings, Insert, Copy, Discard, OpenLog }
+public enum OverlayButton { Retry, Dismiss, OpenSettings, Insert, Copy, Discard, OpenLog, OpenYolimeSettings }
 
 /// <summary>
 /// What the notch shows. Holds content (transcripts, previews, context snippets), so its text never reaches
@@ -18,6 +18,8 @@ public enum OverlayButton { Retry, Dismiss, OpenSettings, Insert, Copy, Discard,
 /// <param name="Narration">What Narrator should announce for this view, or null. Never set while recording.</param>
 /// <param name="OfferUseRaw">The "Use raw" pill: shown beside Done for 5 s after a rewritten paste.</param>
 /// <param name="Informational">A card that confirms rather than warns: the info glyph instead of the warning one.</param>
+/// <param name="Page">For a card with Open yolime Settings: the page it opens.</param>
+/// <param name="FixedWidth">Listening and Working keep the card's full width, so a line arriving mid-recording doesn't resize it.</param>
 public sealed record OverlayView(
     OverlayState State,
     Mode? Mode,
@@ -32,7 +34,9 @@ public sealed record OverlayView(
     bool OfferUseRaw,
     long? HistoryId,
     bool NarrateUrgently,
-    bool Informational = false)
+    bool Informational = false,
+    SettingsPage? Page = null,
+    bool FixedWidth = false)
 {
     public static readonly OverlayView Hidden = new(OverlayState.Hidden, null, "", null, null, 0, null, [], false, null, false, null, false);
 
@@ -84,7 +88,14 @@ public sealed record RunFinished(RunResult Result, Notice? Notice, string AppNam
 /// <summary>A notice outside a run: Busy, Discarded, CapReached, PasswordRefused.</summary>
 public sealed record NoticeOnly(Notice Notice, long AtMs) : OverlayInput;
 
-public sealed record PreviewShown(string Text) : OverlayInput;
+/// <param name="RemainingMs">How long the hook will hold the preview's keys, from now (the hook's clock is the one that acts).</param>
+public sealed record PreviewShown(string Text, long RemainingMs = Hotkeys.PreviewCapture.DeadlineMs) : OverlayInput;
+
+/// <summary>The hook's preview deadline, as time left: pushed when the shown second or the hover pause changes.</summary>
+public sealed record PreviewClock(long RemainingMs, bool Paused) : OverlayInput;
+
+/// <summary>Esc, seen by the hook and passed on to the user's app: it dismisses a card that's showing.</summary>
+public sealed record EscPressed : OverlayInput;
 
 public sealed record PreviewEnded : OverlayInput;
 
@@ -146,6 +157,9 @@ public sealed class OverlayModel(float silenceRms)
     private long _nowMs;
     private Guid _runId;
     private string? _slowTitle;
+
+    /// <summary>The hold key's name, for "Tap Right Ctrl to stop"; the controller keeps it current from settings.</summary>
+    public string HoldKeyName { get; set; } = "the hold key";
 
     /// <summary>
     /// A result that mustn't replace what's on screen: an open preview or pending paste (the hook may hold keys for
@@ -230,8 +244,14 @@ public sealed class OverlayModel(float silenceRms)
                 break;
             case PreviewShown p:
                 // Named with its mode: a held Shift previews the mode the user is in, and the card should say so.
-                Current = new OverlayView(OverlayState.Preview, _mode, "Preview \u00b7 " + _mode, "Enter insert · Esc discard · C copy", null, 0, p.Text,
+                Current = new OverlayView(OverlayState.Preview, _mode, "Preview \u00b7 " + _mode, PreviewHint(p.RemainingMs, paused: false), null, 0, p.Text,
                     [OverlayButton.Insert, OverlayButton.Copy, OverlayButton.Discard], true, $"Preview, {_mode}. Enter to insert, C to copy, Escape to discard. " + p.Text, false, null, false);
+                break;
+            case PreviewClock c when Current.State == OverlayState.Preview:
+                Current = Current with { Detail = PreviewHint(c.RemainingMs, c.Paused) };
+                break;
+            case EscPressed when Current.State == OverlayState.Error:
+                Current = OverlayView.Hidden;
                 break;
             case PreviewEnded when Current.State == OverlayState.Preview:
             case PendingPasteEnded when Current.State == OverlayState.PendingPaste:
@@ -304,7 +324,7 @@ public sealed class OverlayModel(float silenceRms)
     private OverlayView Finished(RunResult r, Notice? notice, string app, long at)
     {
         _nowMs = at;
-        if (notice is { } n) return Card(n, r.HistoryId, Retryable(r), at, minimum: 6_000);
+        if (notice is { } n) return Card(n, r.HistoryId, RunRetry.IsRetryable(r), at, minimum: 6_000);
         // A run that ended quietly (discarded, cancelled with nothing kept) never hides a card the delivery itself
         // just showed, such as "Preview closed: kept in history".
         if (r.Outcome is not (RunOutcome.Completed or RunOutcome.CompletedWithFallback))
@@ -312,7 +332,7 @@ public sealed class OverlayModel(float silenceRms)
         var copied = r.Delivery == DeliveryKind.Copied;
         var seconds = (r.Timing?.OutputDoneMs ?? 0) / 1000.0;
         var words = r.Timing?.OutputWords ?? 0;
-        var title = copied ? "Copied · press Ctrl+V"
+        var title = copied ? "Copied: press\u00a0Ctrl+V"
             : $"→ {ShortApp(app)} · {words} words · {seconds.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture)} s";
         // Narrator reads words, not the arrow and dots.
         var narration = copied ? "Copied. Press Ctrl+V to paste." : app.Length == 0 ? $"Pasted, {words} words" : $"Pasted into {app}, {words} words";
@@ -326,24 +346,55 @@ public sealed class OverlayModel(float silenceRms)
     private OverlayView Card(Notice n, long? historyId, bool retryable, long at, long minimum)
     {
         var text = Notices.Text(n, onCard: true);
+        // A key or settings problem: retrying fails the same way until it's fixed, so the card opens Settings instead.
+        var page = Notices.SettingsPage(n.Kind);
         var buttons = new List<OverlayButton>();
-        if (retryable) buttons.Add(OverlayButton.Retry);
+        if (retryable && page is null) buttons.Add(OverlayButton.Retry);
         if (n.Kind == NoticeKind.MicDenied) buttons.Add(OverlayButton.OpenSettings);
+        if (page is not null && n.Kind != NoticeKind.HoldKeyReset) buttons.Add(OverlayButton.OpenYolimeSettings);
         if (n.Kind is NoticeKind.UpdateFailed or NoticeKind.UpdateSlow) buttons.Add(OverlayButton.OpenLog);
         buttons.Add(OverlayButton.Dismiss);
         // A setup still running after five minutes stays said until the user dismisses it.
         _hideAtMs = n.Kind == NoticeKind.UpdateSlow ? long.MaxValue / 4 : at + Math.Min(15_000, Math.Max(minimum, 6_000 + 40L * text.Length));
-        if (n.Kind == NoticeKind.UpdateSlow) _slowTitle = text;
+        // The first sentence is the title, the rest the smaller line below; narration keeps the whole text.
+        var (title, detail) = SplitCard(text);
+        if (n.Kind == NoticeKind.UpdateSlow) _slowTitle = title;
         (_hovered, _hoverPausedMs, _useRawUntilMs) = (false, 0, 0);
         // Good news and confirmations (Copied, Cancelled) get the info glyph and polite narration, as their balloons do.
         var info = Notices.IsInfo(n.Kind);
-        return new OverlayView(OverlayState.Error, n.Mode ?? _mode, text, null, null, 0, null, buttons, true, text, false, historyId, !info, info);
+        return new OverlayView(OverlayState.Error, n.Mode ?? _mode, title, detail, null, 0, null, buttons, true, text, false, historyId, !info, info,
+            page is not null && n.Kind != NoticeKind.HoldKeyReset ? page : null);
     }
 
-    /// <summary>The same set Retry last accepts: a kept recording, or a Prompt/Reply whose rewrite failed.</summary>
-    private static bool Retryable(RunResult r) => r.HistoryId is not null && (r.Outcome is RunOutcome.SttFailed or RunOutcome.NoSpeech
-        or RunOutcome.Interrupted or RunOutcome.Cancelled or RunOutcome.CaptureFailed
-        || (r.Outcome == RunOutcome.CompletedWithFallback && r.RewriteError is not null && r.Mode is Mode.Prompt or Mode.Reply));
+    /// <summary>
+    /// The first sentence and the rest, split at ". ", "? " or "! " before a capital, so "0.1.1. yolime" and "e.g. x"
+    /// stay whole. One sentence: no detail.
+    /// </summary>
+    public static (string Title, string? Detail) SplitCard(string text)
+    {
+        for (var i = 0; i + 2 < text.Length; i++)
+        {
+            if (text[i] is '.' or '?' or '!' && text[i + 1] == ' ' && char.IsUpper(text[i + 2]))
+                return (text[..(i + 1)], text[(i + 2)..]);
+        }
+        return (text, null);
+    }
+
+    /// <summary>What a bare tap of the hold key does now: retry the card's run, or copy the raw transcript the pill offers.</summary>
+    public TapAction Tap() => Current switch
+    {
+        { State: OverlayState.Error, HistoryId: { } id } when Current.Buttons.Contains(OverlayButton.Retry) => new TapAction(TapKind.Retry, id),
+        { OfferUseRaw: true, HistoryId: { } id } => new TapAction(TapKind.CopyRaw, id),
+        _ => TapAction.None,
+    };
+
+    /// <summary>The preview's key hint, with the time left only in its last 10 s (a ticking number distracts a long read).</summary>
+    private static string PreviewHint(long remainingMs, bool paused)
+    {
+        const string keys = "Enter insert \u00b7 C copy \u00b7 Esc discard";
+        if (paused) return "Paused \u00b7 " + keys;
+        return remainingMs <= 10_000 ? $"{Math.Max(0, (remainingMs + 999) / 1000)} s \u00b7 " + keys : keys;
+    }
 
     private OverlayView Listening()
     {
@@ -357,15 +408,15 @@ public sealed class OverlayModel(float silenceRms)
         // Silence counts from when the mic was ready: a slow headset isn't "muted" before anyone could speak.
         else if (_micReady && _lastVoiceMs is null && _nowMs - _readyAtMs >= SilenceMs) detail = "No audio: is the mic muted?";
         else if (_contextLine is not null) detail = _contextLine;
-        else if (_latched) detail = "Tap to stop";
+        else if (_latched) detail = $"Tap {HoldKeyName} to stop";
         else detail = null;
         var title = _app.Length == 0 ? Label(_mode) : $"{Label(_mode)} · {ShortApp(_app)}";
         return new OverlayView(OverlayState.Listening, _mode, title, detail, Minutes(elapsed), 0, null, [], false,
-            null, false, null, false);
+            null, false, null, false, FixedWidth: true);
     }
 
     private OverlayView Working(string title, string? detail) =>
-        new(OverlayState.Working, _mode, title, detail, Minutes(_nowMs - _startMs), 0, null, [], false, null, false, null, false);
+        new(OverlayState.Working, _mode, title, detail, Minutes(_nowMs - _startMs), 0, null, [], false, null, false, null, false, FixedWidth: true);
 
     private void ShowStream(long now)
     {

@@ -79,7 +79,7 @@ public class OverlayModelTests
     public void Latched_SaysTapToStop_AndTheCapCountsDown()
     {
         Start(latched: true);
-        Assert.Equal("Tap to stop", _m.Apply(new Tick(100)).Detail);
+        Assert.Equal("Tap the hold key to stop", _m.Apply(new Tick(100)).Detail);
         Assert.Equal("10 s left", _m.Apply(new CapCountdown(10, 100)).Detail);
         Assert.Equal("4 s left", _m.Apply(new Tick(6_100)).Detail);
     }
@@ -117,7 +117,7 @@ public class OverlayModelTests
     {
         Start();
         var v = _m.Apply(new RunFinished(Result(delivery: DeliveryKind.Copied), null, "Slack", 5_000));
-        Assert.Equal("Copied · press Ctrl+V", v.Title);
+        Assert.Equal("Copied: press\u00a0Ctrl+V", v.Title);
         Assert.Equal(OverlayState.Done, _m.Apply(new Tick(8_999)).State);
         Assert.Equal(OverlayState.Hidden, _m.Apply(new Tick(9_000)).State);
     }
@@ -166,8 +166,9 @@ public class OverlayModelTests
         Assert.Contains(OverlayButton.Retry, v.Buttons);
         Assert.Contains(OverlayButton.Dismiss, v.Buttons);
         Assert.Equal(1, v.HistoryId);
-        Assert.DoesNotContain("from the tray", v.Title); // the card has the button
-        Assert.Equal(v.Title, v.Narration);
+        Assert.DoesNotContain("from the tray", v.Narration); // the card has the button
+        // The first sentence is the title and the rest the detail; Narrator hears all of it.
+        Assert.Equal(v.Narration, v.Detail is null ? v.Title : v.Title + " " + v.Detail);
     }
 
     [Fact]
@@ -175,7 +176,7 @@ public class OverlayModelTests
     {
         Start();
         var v = _m.Apply(new RunFinished(Result(RunOutcome.SttFailed), new Notice(NoticeKind.ServiceUnreachable), "Slack", 0));
-        var expected = Math.Min(15_000, 6_000 + 40 * v.Title.Length);
+        var expected = Math.Min(15_000, 6_000 + 40 * v.Narration!.Length); // the whole text, not just the title
         _m.Apply(new PointerOver(true));
         Assert.Equal(OverlayState.Error, _m.Apply(new Tick(60_000)).State); // hovered: stays
         _m.Apply(new PointerOver(false));
@@ -243,7 +244,7 @@ public class OverlayModelTests
         _m.Apply(new NoticeOnly(new Notice(NoticeKind.PreviewKept), 1_000));
         var v = _m.Apply(new RunFinished(Result(RunOutcome.Discarded), null, "Slack", 1_100));
         Assert.Equal(OverlayState.Error, v.State);
-        Assert.Contains("kept in history", v.Title);
+        Assert.Contains("kept in history", v.Narration);
     }
 
     [Fact]
