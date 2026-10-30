@@ -893,6 +893,7 @@ public sealed class DictationPipeline(
                 ContextSource = ContextSource,
                 ContextChars = ContextChars,
                 Timing = Timing,
+                HistoryPaused = HistoryPaused,
             };
         }
     }

@@ -86,6 +86,9 @@ public sealed record RunResult
 
     /// <summary>Null only for <see cref="RunOutcome.Busy"/>, which isn't a run.</summary>
     public RunTiming? Timing { get; init; }
+
+    /// <summary>History was paused for this run, so nothing was kept: no row, and its recording goes.</summary>
+    public bool HistoryPaused { get; init; }
 }
 
 public static class SttTimeout

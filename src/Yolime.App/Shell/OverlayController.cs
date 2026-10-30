@@ -43,7 +43,10 @@ internal sealed partial class OverlayController : INoticeSink, IDisposable
     private readonly TextBlock _previewText = new() { FontSize = 13, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = false };
     private readonly StackPanel _buttons = new() { Orientation = Orientation.Horizontal, Spacing = 8, Margin = new Thickness(0, 8, 0, 0) };
     // Narrator reads this, not the visible text: a peer for an element that only exists to announce.
-    private readonly TextBlock _narrator = new() { Opacity = 0, Height = 0, IsHitTestVisible = false };
+    // Narration goes out as a notification event with its own text, so this block needs no size. Width matters: it is
+    // laid out in the card, and Render measures before Announce sets the new text, so an unbounded width sized each card
+    // to the previous card's narration (a one-line "Copied" card at full width).
+    private readonly TextBlock _narrator = new() { Opacity = 0, Height = 0, Width = 1, IsHitTestVisible = false };
 
     private OverlayView _shown = OverlayView.Hidden;
     private readonly Windows.Foundation.TypedEventHandler<UISettings, object> _themeChanged;
@@ -246,8 +249,9 @@ internal sealed partial class OverlayController : INoticeSink, IDisposable
         {
             _buttons.Children.Add(b switch
             {
-                OverlayButton.Retry => Button("Retry", () => { if (_shown.HistoryId is { } id) Retry?.Invoke(id); Post(new Dismissed()); }),
-                OverlayButton.OpenSettings => Button("Open settings", () => { OpenMicSettings?.Invoke(); Post(new Dismissed()); }),
+                // Named with its key, as the preview's buttons are: a tap of the hold key retries too.
+                OverlayButton.Retry => Button($"Retry (tap {Yolime.Core.Hotkeys.HoldKeyRules.Name(_settings().HoldKeyVk)})", () => { if (_shown.HistoryId is { } id) Retry?.Invoke(id); Post(new Dismissed()); }),
+                OverlayButton.OpenSettings => Button("Open privacy settings", () => { OpenMicSettings?.Invoke(); Post(new Dismissed()); }),
                 OverlayButton.OpenLog => Button("Open the log", () => { OpenUpdateLog?.Invoke(); Post(new Dismissed()); }),
                 OverlayButton.Insert => Button("Insert (Enter)", () => PreviewChosen?.Invoke(Yolime.Core.Output.PreviewChoice.Insert)),
                 OverlayButton.Copy => Button("Copy (C)", () => PreviewChosen?.Invoke(Yolime.Core.Output.PreviewChoice.Copy)),
@@ -291,6 +295,7 @@ internal sealed partial class OverlayController : INoticeSink, IDisposable
 
     private static string Glyph(OverlayView view) => view.State switch
     {
+        OverlayState.Error when view.Informational => ((char)0xE946).ToString(), // Info
         OverlayState.Error => ((char)0xE7BA).ToString(), // Warning
         OverlayState.Done => ((char)0xE73E).ToString(), // CheckMark
         OverlayState.Updating => ((char)0xE946).ToString(), // Info
