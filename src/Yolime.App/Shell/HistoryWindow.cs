@@ -76,13 +76,17 @@ internal sealed partial class HistoryWindow : Window
         AutomationProperties.SetLiveSetting(_status, AutomationLiveSetting.Polite);
 
         _list.ItemsSource = _items;
-        _list.ItemTemplate = null;
+        // An empty template the row is drawn into: with no template, the container shows the item's ToString
+        // ("HistoryItem { Id = 4, … }"), whatever is set as its content here.
+        _list.ItemTemplate = (DataTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load(
+            """<DataTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"><Border /></DataTemplate>""");
         _list.ContainerContentChanging += (_, e) =>
         {
             // Each row is drawn from code and named for Narrator with everything it shows.
-            if (e.Item is not HistoryItem item || e.ItemContainer is not ListViewItem container) return;
-            container.Content = RowView(item);
+            if (e.InRecycleQueue || e.Item is not HistoryItem item || e.ItemContainer is not ListViewItem container) return;
+            if (container.ContentTemplateRoot is Border root) root.Child = RowView(item);
             AutomationProperties.SetName(container, item.AccessibleName);
+            e.Handled = true;
         };
         _list.SelectionChanged += (_, _) => ShowSelected();
         _older.Click += (_, _) => Safe(() => LoadAsync(append: true));
