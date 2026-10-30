@@ -313,8 +313,14 @@ internal static class E2EMode
     private static (string Id, string Arg)? Request(string path)
     {
         if (!File.Exists(path)) return null;
-        var text = File.ReadAllText(path).Trim();
-        File.Delete(path);
+        // Claimed by a rename, which only one taker can win: the 100 ms hook timer's callbacks can overlap, and two
+        // reading and deleting the same file raced (UnauthorizedAccessException on the second delete). A lost race, or
+        // the harness still moving its request in, is "not yet": the next tick looks again.
+        var taken = path + ".taken";
+        try { File.Move(path, taken, overwrite: true); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return null; }
+        var text = File.ReadAllText(taken).Trim();
+        File.Delete(taken);
         var space = text.IndexOf(' ');
         return space < 0 ? (text, "") : (text[..space], text[(space + 1)..]);
     }
