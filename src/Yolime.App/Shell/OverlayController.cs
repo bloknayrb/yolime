@@ -43,7 +43,10 @@ internal sealed partial class OverlayController : INoticeSink, IDisposable
     private readonly TextBlock _previewText = new() { FontSize = 13, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = false };
     private readonly StackPanel _buttons = new() { Orientation = Orientation.Horizontal, Spacing = 8, Margin = new Thickness(0, 8, 0, 0) };
     // Narrator reads this, not the visible text: a peer for an element that only exists to announce.
-    private readonly TextBlock _narrator = new() { Opacity = 0, Height = 0, IsHitTestVisible = false };
+    // Narration goes out as a notification event with its own text, so this block needs no size. Width matters: it is
+    // laid out in the card, and Render measures before Announce sets the new text, so an unbounded width sized each card
+    // to the previous card's narration (a one-line "Copied" card at full width).
+    private readonly TextBlock _narrator = new() { Opacity = 0, Height = 0, Width = 1, IsHitTestVisible = false };
 
     private OverlayView _shown = OverlayView.Hidden;
     private readonly Windows.Foundation.TypedEventHandler<UISettings, object> _themeChanged;

@@ -71,12 +71,6 @@ internal sealed partial class OverlayWindow : IDisposable
 
     public bool Visible { get; private set; }
 
-    private static void InvalidateTree(UIElement element)
-    {
-        element.InvalidateMeasure();
-        for (var i = 0; i < Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChildrenCount(element); i++)
-            if (Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(element, i) is UIElement child) InvalidateTree(child);
-    }
 
     /// <summary>The window's rect in physical pixels, for hit-testing clicks against it.</summary>
     public (int Left, int Top, int Right, int Bottom) Bounds { get; private set; }
@@ -115,8 +109,6 @@ internal sealed partial class OverlayWindow : IDisposable
         // (Compared with where the window really is, not a remembered monitor: a visible card can move monitors too.)
         if (!Visible && monitor != MonitorFromWindow(Hwnd, 2))
             SetWindowPos(Hwnd, 0, info.Work.Left, info.Work.Top, 0, 0, SwpNoActivate | SwpNoSize | SwpNoZOrder);
-        // A short card shown right after a long one kept the long one's full width: drop every cached measure first.
-        InvalidateTree(_content);
         _content.Measure(new Windows.Foundation.Size(maxWidthDip, double.PositiveInfinity));
         // 1 DIP of slack: the island's layout rounding can leave the measured width a fraction short of the text.
         var w = (int)Math.Ceiling((_content.DesiredSize.Width + 1) * scale);
