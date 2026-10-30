@@ -176,6 +176,8 @@ internal static class Program
         Thread.Sleep(800);
         var box = window!.FindFirstDescendant(cf => cf.ByControlType(FlaUI.Core.Definitions.ControlType.Edit));
         if (box is null) return "no key box";
+        // The first slot must start unset, or a status that already says "Saved." would pass without Enter doing anything.
+        if (window.FindAllDescendants(cf => cf.ByName("Not set yet.")).Length < 2) return "a key slot was already set: the check would prove nothing";
         box.Focus();
         Thread.Sleep(300);
         foreach (var vk in new ushort[] { 0x46, 0x41, 0x4B, 0x45 }) Input.Tap(vk); // "fake"

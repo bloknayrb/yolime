@@ -220,6 +220,9 @@ internal sealed class WelcomeWindow : Window
         {
             var id = box.SelectedIndex <= 0 ? null : mics[box.SelectedIndex - 1].Id;
             _host.Settings.Update(s => s with { MicDeviceId = id });
+            // A new device starts clean: the last one's failure (and its privacy link) no longer applies.
+            note.Text = "Say something: the bar should move.";
+            _micPrivacy.Visibility = Visibility.Collapsed;
             StartMeter(level, note);
         };
         _body.Children.Add(box);
@@ -327,8 +330,9 @@ internal sealed class WelcomeWindow : Window
                 _ui.TryEnqueue(() =>
                 {
                     note.Text = MicTestProblem(ex);
-                    var noMic = ex is Yolime.Core.Audio.AudioCaptureException { Error: Yolime.Core.Audio.CaptureError.NoDevice };
-                    _micPrivacy.Visibility = noMic ? Visibility.Collapsed : Visibility.Visible;
+                    // The privacy link only where privacy is the likely cause: not for a missing or lost device.
+                    var denied = ex is Yolime.Core.Audio.AudioCaptureException { Error: Yolime.Core.Audio.CaptureError.AccessDenied } or System.Runtime.InteropServices.COMException;
+                    _micPrivacy.Visibility = denied ? Visibility.Visible : Visibility.Collapsed;
                 });
             }
         });
