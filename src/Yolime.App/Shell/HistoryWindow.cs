@@ -110,6 +110,7 @@ internal sealed partial class HistoryWindow : Window
         Add(left, _older, 3);
         var footer = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Margin = new Thickness(12, 4, 12, 12) };
         var change = new HyperlinkButton { Content = "Change" };
+        AutomationProperties.SetName(change, "Change how long runs are kept");
         change.Click += (_, _) => _host.OpenSettings(SettingsWindow.OverlayHistory);
         var clear = new Button { Content = "Clear all\u2026" };
         clear.Click += (_, _) => Safe(ClearAllAsync);
@@ -500,8 +501,11 @@ internal sealed partial class HistoryWindow : Window
         _detail.Children.Add(new TextBlock { Text = $"{item.When} \u00b7 {item.Mode} \u00b7 {item.App}", Style = (Style)Application.Current.Resources["SubtitleTextBlockStyle"], TextWrapping = TextWrapping.Wrap });
         var facts = new List<string> { item.Status };
         if (row.TotalMs is { } total) facts.Add($"{total / 1000.0:0.0} s");
-        foreach (var (stage, ms) in row.StageMs) facts.Add($"{StageName(stage)} {ms / 1000.0:0.0} s");
-        if (item.RecordingKept) facts.Add("recording kept for Retry");
+        // A stage that never ran (Raw's rewrite, a short Dictate cleaned locally) still has a time: it isn't a fact.
+        foreach (var (stage, ms) in row.StageMs)
+            if (!row.Stages.TryGetValue(stage, out var status) || status != StageStatus.Skipped) facts.Add($"{StageName(stage)} {ms / 1000.0:0.0} s");
+        // Said only when the Retry button is there too.
+        if (item.CanRetryAudio) facts.Add("recording kept for Retry");
         _detail.Children.Add(new TextBlock { Text = string.Join(" \u00b7 ", facts), Opacity = 0.8, TextWrapping = TextWrapping.Wrap });
         if (row.RerunOf is { } source)
         {
@@ -646,14 +650,59 @@ internal sealed partial class HistoryWindow : Window
         {
             bar.Children.Add(ActionButton("Retry", async () =>
             {
-                Say(InfoBarSeverity.Informational, "Retrying\u2026");
+                // The result shows where a run's result always does, not here: say so rather than leave "Retrying\u2026" up.
+                Say(InfoBarSeverity.Informational, "Retrying: the result shows on the notch.");
                 await Guarded(() => _host.Coordinator.RetryAsync(row.Id, CancellationToken.None));
             }));
         }
         bar.Children.Add(ActionButton("Add word\u2026", () => AddWord(bar)));
         bar.Children.Add(ActionButton("Delete", () => DeleteAsync(item)));
-        if (paused) bar.Children.Add(new TextBlock { Text = "History is paused: re-runs are off.", Opacity = 0.75, VerticalAlignment = VerticalAlignment.Center });
-        return new ScrollViewer { Content = bar, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalScrollBarVisibility = ScrollBarVisibility.Disabled };
+        // Wrapped, not scrolled: a scrolling row hid Delete past the pane's edge with no sign it was there.
+        var wrapped = new WrapRow { Spacing = 8 };
+        foreach (var child in bar.Children.ToList())
+        {
+            bar.Children.Remove(child);
+            wrapped.Children.Add(child);
+        }
+        var actions = new StackPanel { Spacing = 6 };
+        if (paused) actions.Children.Add(new TextBlock { Text = "History is paused: re-runs are off.", Opacity = 0.75 });
+        actions.Children.Add(wrapped);
+        return actions;
+    }
+
+    /// <summary>Lays its children out left to right, starting a new line when the next one wouldn't fit.</summary>
+    private sealed partial class WrapRow : Panel
+    {
+        public double Spacing { get; init; }
+
+        protected override Windows.Foundation.Size MeasureOverride(Windows.Foundation.Size available)
+        {
+            double x = 0, y = 0, line = 0, widest = 0;
+            foreach (var child in Children)
+            {
+                child.Measure(new Windows.Foundation.Size(available.Width, double.PositiveInfinity));
+                var s = child.DesiredSize;
+                if (x > 0 && x + s.Width > available.Width) (x, y, line) = (0, y + line + Spacing, 0);
+                x += s.Width + Spacing;
+                line = Math.Max(line, s.Height);
+                widest = Math.Max(widest, x - Spacing);
+            }
+            return new(double.IsInfinity(available.Width) ? widest : Math.Min(widest, available.Width), y + line);
+        }
+
+        protected override Windows.Foundation.Size ArrangeOverride(Windows.Foundation.Size final)
+        {
+            double x = 0, y = 0, line = 0;
+            foreach (var child in Children)
+            {
+                var s = child.DesiredSize;
+                if (x > 0 && x + s.Width > final.Width) (x, y, line) = (0, y + line + Spacing, 0);
+                child.Arrange(new Windows.Foundation.Rect(x, y, s.Width, s.Height));
+                x += s.Width + Spacing;
+                line = Math.Max(line, s.Height);
+            }
+            return final;
+        }
     }
 
     /// <summary>"Re-insert into Outlook": the app the click will paste into, read now.</summary>
