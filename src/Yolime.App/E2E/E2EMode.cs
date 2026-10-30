@@ -277,19 +277,19 @@ internal static class E2EMode
             return $"{(ok ? "ok" : "refused")} {_lastView?.State} {string.Join(",", _lastView?.Buttons ?? [])}";
         });
         var state = Path.Combine(dir, "tour-state");
+        string id = "";
         try
         {
-            if (!File.Exists(state)) return;
-            var name = File.ReadAllText(state).Trim();
-            File.Delete(state);
+            if (Request(state) is not var (rid, name)) return;
+            id = rid;
             if (TourStates.Find(name) is not { } entry)
             {
-                File.WriteAllText(state + ".error", "unknown entry");
+                File.WriteAllText(state + ".error", id + " unknown entry");
                 return;
             }
             // All in one UI-thread step, applied directly: the answer follows the inputs, and an exception in the model
             // lands in this step's catch rather than in a dispatcher item of its own.
-            HookAnswer(ui, state, () =>
+            HookAnswer(ui, state, id, () =>
             {
                 // Updating ignores Dismissed: UpdatingEnded without a notice is what leaves it.
                 foreach (var reset in new Yolime.Core.Overlay.OverlayInput[]
@@ -301,25 +301,38 @@ internal static class E2EMode
         }
         catch (Exception ex)
         {
-            try { File.WriteAllText(state + ".error", ex.GetType().Name); }
+            try { File.WriteAllText(state + ".error", id + " " + ex.GetType().Name); }
             catch (IOException) { }
         }
+    }
+
+    /// <summary>
+    /// Reads and removes a tour request, "&lt;id&gt; &lt;arg&gt;". Every answer starts with the id, so the harness never takes
+    /// a late answer to an earlier request for the one it's waiting on. Null when there's no request.
+    /// </summary>
+    private static (string Id, string Arg)? Request(string path)
+    {
+        if (!File.Exists(path)) return null;
+        var text = File.ReadAllText(path).Trim();
+        File.Delete(path);
+        var space = text.IndexOf(' ');
+        return space < 0 ? (text, "") : (text[..space], text[(space + 1)..]);
     }
 
     /// <summary>A tour hook answered on the hook timer's thread.</summary>
     private static void Hook(string dir, string name, Func<string, string> answer)
     {
         var path = Path.Combine(dir, name);
+        var id = "";
         try
         {
-            if (!File.Exists(path)) return;
-            var arg = File.ReadAllText(path).Trim();
-            File.Delete(path);
-            WriteDone(path, answer(arg));
+            if (Request(path) is not var (rid, arg)) return;
+            id = rid;
+            WriteDone(path, id + " " + answer(arg));
         }
         catch (Exception ex)
         {
-            try { File.WriteAllText(path + ".error", ex.GetType().Name); }
+            try { File.WriteAllText(path + ".error", id + " " + ex.GetType().Name); }
             catch (IOException) { }
         }
     }
@@ -328,30 +341,34 @@ internal static class E2EMode
     private static void HookOnUi(string dir, string name, Microsoft.UI.Dispatching.DispatcherQueue ui, Func<string, string> answer)
     {
         var path = Path.Combine(dir, name);
+        var id = "";
         try
         {
-            if (!File.Exists(path)) return;
-            var arg = File.ReadAllText(path).Trim();
-            File.Delete(path);
-            HookAnswer(ui, path, () => answer(arg));
+            if (Request(path) is not var (rid, arg)) return;
+            id = rid;
+            HookAnswer(ui, path, id, () => answer(arg));
         }
         catch (Exception ex)
         {
-            try { File.WriteAllText(path + ".error", ex.GetType().Name); }
+            try { File.WriteAllText(path + ".error", id + " " + ex.GetType().Name); }
             catch (IOException) { }
         }
     }
 
-    private static void HookAnswer(Microsoft.UI.Dispatching.DispatcherQueue ui, string path, Func<string> answer) => ui.TryEnqueue(() =>
+    private static void HookAnswer(Microsoft.UI.Dispatching.DispatcherQueue ui, string path, string id, Func<string> answer)
     {
-        // On the UI thread with nothing above it: nothing here may take the app down.
-        try { WriteDone(path, answer()); }
-        catch (Exception ex)
+        var queued = ui.TryEnqueue(() =>
         {
-            try { File.WriteAllText(path + ".error", ex.GetType().Name); }
-            catch (IOException) { }
-        }
-    });
+            // On the UI thread with nothing above it: nothing here may take the app down.
+            try { WriteDone(path, id + " " + answer()); }
+            catch (Exception ex)
+            {
+                try { File.WriteAllText(path + ".error", id + " " + ex.GetType().Name); }
+                catch (IOException) { }
+            }
+        });
+        if (!queued) File.WriteAllText(path + ".error", id + " not queued");
+    }
 
     /// <summary>Written whole, then moved in: the harness must never read a half-written answer.</summary>
     private static void WriteDone(string path, string text)

@@ -41,10 +41,11 @@ internal static partial class Tour
         var areasFile = Path.Combine(Results, "areas.txt");
         var areas = File.Exists(areasFile) ? File.ReadAllLines(areasFile).Where(l => l.Length > 0).ToHashSet(StringComparer.Ordinal)
             : ["overlay", "cards", "windows"];
-        var original = ReadTheme();
+        (object?, object?)? original = null;
         Process? app = null;
         try
         {
+            original = ReadTheme();
             var form = TargetForm.StartOnOwnThread();
             foreach (var theme in new[] { "light", "dark" })
             {
@@ -85,7 +86,9 @@ internal static partial class Tour
         finally
         {
             try { app?.Kill(); } catch (InvalidOperationException) { }
-            RestoreTheme(original);
+            // DONE must still be written, or the host waits out the whole deadline.
+            try { if (original is { } o) RestoreTheme(o); }
+            catch (Exception ex) { Fail("tour: theme restore", ex.GetType().Name); }
             File.WriteAllText(Path.Combine(Results, "tour-index.json"), JsonSerializer.Serialize(Index, new JsonSerializerOptions { WriteIndented = true }));
             File.WriteAllText(Path.Combine(Results, "e2e.json"), JsonSerializer.Serialize(Report, new JsonSerializerOptions { WriteIndented = true }));
             File.WriteAllText(Path.Combine(Results, "DONE"), "done");
@@ -180,6 +183,7 @@ internal static partial class Tour
         if (Ask(results, "tour-state", "card DidntHear - false true") != "ok") { Fail(label, "the card wasn't staged"); return; }
         Thread.Sleep(400);
         var notch = Overlay.Find();
+        if (notch == 0 || !Overlay.Visible(notch)) { Fail(label, "the card isn't visible"); return; }
         var (l, t, r, b) = Overlay.WindowRect(notch);
         (l, t, r, b) = (Math.Max(0, l - Margin), Math.Max(0, t - Margin), r + Margin, b + Margin);
         using var shown = Overlay.Grab(l, t, r - l, b - t);
@@ -402,15 +406,22 @@ internal static partial class Tour
 
     private static string FileName(string name) => string.Concat(name.Select(c => char.IsLetterOrDigit(c) || c == '-' ? char.ToLowerInvariant(c) : '_'));
 
-    /// <summary>Drops a hook file and waits for its answer: the ".done" text, or null on an error or no answer.</summary>
+    private static int _request;
+
+    /// <summary>
+    /// Drops a hook request, "&lt;id&gt; &lt;arg&gt;", and waits for the answer that starts with that id: the ".done" text, "error …",
+    /// or null when nothing answers. A late answer to an earlier request carries its own id, so it's never taken for this one.
+    /// </summary>
     private static string? Ask(string results, string hook, string arg)
     {
         var path = Path.Combine(results, hook);
-        foreach (var stale in new[] { path + ".done", path + ".error" }) RetryIo(() => File.Delete(stale));
-        File.WriteAllText(path, arg);
+        var id = "r" + Interlocked.Increment(ref _request) + " ";
+        // Written whole, then moved in: the hook must never read half a request.
+        File.WriteAllText(path + ".req", id + arg);
+        File.Move(path + ".req", path, overwrite: true);
+        string? Read(string file) => File.Exists(file) && RetryIo(() => File.ReadAllText(file)) is { } t && t.StartsWith(id, StringComparison.Ordinal) ? t[id.Length..] : null;
         string? answer = null;
-        Program.Wait(() => File.Exists(path + ".error") || (File.Exists(path + ".done") && (answer = RetryIo(() => File.ReadAllText(path + ".done"))) is not null), 5000);
-        if (File.Exists(path + ".error")) return "error " + RetryIo(() => File.ReadAllText(path + ".error"));
+        Program.Wait(() => (answer = Read(path + ".done") ?? (Read(path + ".error") is { } e ? "error " + e : null)) is not null, 5000);
         return answer;
     }
 
@@ -438,7 +449,12 @@ internal static partial class Tour
         if (firstRun) args.Add("--test-first-run");
         foreach (var a in args) start.ArgumentList.Add(a);
         var app = Process.Start(start);
-        if (!Program.Wait(() => File.Exists(Path.Combine(results, "ready")), 20_000)) return null;
+        if (!Program.Wait(() => File.Exists(Path.Combine(results, "ready")), 20_000))
+        {
+            // Not left running: the next launch waits for every copy to be gone.
+            Stop(app);
+            return null;
+        }
         // The startup toast arrives late in a fresh Sandbox (seen ~17 s in): let it come and go first.
         Thread.Sleep(20_000);
         return app;

@@ -18,8 +18,8 @@ public class ReleaseHasNoTestCodeTests
     /// <summary>The E2E file hooks the harness drops into the results folder.</summary>
     private static readonly string[] AppHookFiles = ["stall-ui", "show-card", "probe-fit", "shrink-card", "check-updates", "tour-state", "tour-freeze", "probe-theme", "set-capture-hidden"];
 
-    /// <summary>Test switches that are fields on product types (TestShrinkPx on OverlayWindow, the tour's on OverlayController).</summary>
-    private static readonly string[] AppTestFields = ["TestShrinkPx", "TestFreezeTicks", "TestNotchTheme", "TestPillTheme"];
+    /// <summary>Test members on product types: TestShrinkPx on OverlayWindow, the fit probe and the tour's fields and methods on OverlayController.</summary>
+    private static readonly string[] AppTestFields = ["TestShrinkPx", "TestFreezeTicks", "TestNotchTheme", "TestPillTheme", "TestApply", "TestSetCaptureHidden", "FitProbe"];
 
     /// <summary>The update scenarios' second way in, and the files of its fake feed.</summary>
     private static readonly string[] AppUpdateMarkers = ["e2e.json", "latest.json", "asset-"];
@@ -41,13 +41,15 @@ public class ReleaseHasNoTestCodeTests
         return (types, strings);
     }
 
-    /// <summary>Field names defined in the assembly (test switches that are members, not types or strings).</summary>
+    /// <summary>Field and method names defined in the assembly (test switches that are members, not types or strings).</summary>
     private static HashSet<string> ReadMembers(string dll)
     {
         using var pe = new PEReader(File.OpenRead(dll));
         var md = pe.GetMetadataReader();
         var names = new HashSet<string>(StringComparer.Ordinal);
         foreach (var h in md.FieldDefinitions) names.Add(md.GetString(md.GetFieldDefinition(h).Name));
+        // And methods: test entry points on product types (TestApply, TestSetCaptureHidden) are methods, not fields.
+        foreach (var h in md.MethodDefinitions) names.Add(md.GetString(md.GetMethodDefinition(h).Name));
         return names;
     }
 
