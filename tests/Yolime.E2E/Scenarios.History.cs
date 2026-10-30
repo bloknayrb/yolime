@@ -133,7 +133,9 @@ internal sealed partial class Scenarios
     /// </summary>
     private string? HistoryRowMenu()
     {
+        // Two fresh runs, so the second row is one whose output is known (an earlier scenario's Raw re-run would be).
         if (Dictate() is { } fail) return fail;
+        if (Dictate() is { } fail2) return fail2;
         SetClip(Sentinel);
         return WithHistory(window =>
         {
