@@ -1,0 +1,35 @@
+<Project>
+  <!-- These two switches must come from the command line (-p:), never the environment: MSBuild turns every
+       environment variable into a property, so a stale shell could silently ship test code or unlock restore. -->
+  <Target Name="YolimeGuardSwitches" BeforeTargets="Restore;_CheckForInvalidConfigurationAndPlatform">
+    <Error Condition="'$([System.Environment]::GetEnvironmentVariable(`YolimeE2E`))' != '' or '$([System.Environment]::GetEnvironmentVariable(`YolimeUnlock`))' != ''"
+           Text="YolimeE2E and YolimeUnlock must be passed as -p: properties, not environment variables." />
+    <!-- Check the define itself, not just YolimeE2E: -p:DefineConstants=YOLIME_E2E (or that variable in the
+         environment) would otherwise compile test code into a Release build. -->
+    <Error Condition="('$(YolimeE2E)' == 'true' or $(DefineConstants.Contains('YOLIME_E2E'))) and ('$(Configuration)' == 'Release' or '$(_IsPublishing)' == 'true')"
+           Text="An E2E build can never be a Release or publish build." />
+  </Target>
+
+  <!-- msbuild -t:Publish doesn't set _IsPublishing, so guard the publish targets themselves too. -->
+  <Target Name="YolimeGuardPublish" BeforeTargets="PrepareForPublish">
+    <Error Condition="$(DefineConstants.Contains('YOLIME_E2E'))" Text="An E2E build can never be published." />
+  </Target>
+
+  <PropertyGroup>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <RestoreLockedMode Condition="'$(YolimeUnlock)' != 'true'">true</RestoreLockedMode>
+    <!-- The SDK only excludes the current build's own output folders, so each flavour would compile the other's
+         generated AssemblyInfo files. -->
+    <DefaultItemExcludes>$(DefaultItemExcludes);bin/**;obj/**</DefaultItemExcludes>
+  </PropertyGroup>
+
+  <!-- E2E builds get their own output folders so a test build can't be mistaken for a normal one. -->
+  <PropertyGroup Condition="'$(YolimeE2E)' == 'true'">
+    <DefineConstants>$(DefineConstants);YOLIME_E2E</DefineConstants>
+    <BaseOutputPath>bin\e2e\</BaseOutputPath>
+    <BaseIntermediateOutputPath>obj\e2e\</BaseIntermediateOutputPath>
+  </PropertyGroup>
+</Project>

@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.19041.0</TargetPlatformMinVersion>
+    <RootNamespace>Yolime.App</RootNamespace>
+    <AssemblyName>Yolime.App</AssemblyName>
+    <!-- The one version source: tools/build-setup.ps1 reads it back from the published exe for the setup's name and
+         its Apps & Features entry. Bump it when a build is worth naming. -->
+    <Version>0.1.0</Version>
+    <UseWinUI>true</UseWinUI>
+    <WindowsPackageType>None</WindowsPackageType>
+    <!-- Still unpackaged: this only makes publish carry Yolime.App.pri (App.xaml's resources), which it otherwise
+         leaves out, and without which the published app can't start. tools/check-publish.ps1 checks for it. -->
+    <EnableMsixTooling>true</EnableMsixTooling>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <SelfContained>true</SelfContained>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <Platforms>x64</Platforms>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- Append, never assign: Directory.Build.props may already have added YOLIME_E2E. -->
+    <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.WindowsAppSDK" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" />
+    <PackageReference Include="FlaUI.UIA3" />
+    <PackageReference Include="NAudio.Wasapi" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Yolime.Core\Yolime.Core.csproj" />
+  </ItemGroup>
+</Project>

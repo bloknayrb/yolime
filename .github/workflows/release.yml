@@ -1,0 +1,202 @@
+name: release
+
+# A release is cut by pushing a tag vX.Y.Z on a commit already on main, with <Version>X.Y.Z</Version> in
+# src/Yolime.App/Yolime.App.csproj. The build runs with read access only; a separate job with write access publishes
+# what it built; a third job checks the published release the way yolime's updater will read it.
+on:
+  push:
+    tags: ['v*']
+
+permissions: {}
+
+# One release at a time, whatever the tag: two racing would each mark themselves "latest".
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.tag.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: global.json
+
+      # Only a vX.Y.Z tag on a commit that's on main, matching the project's <Version>, becomes a release.
+      - name: Check the tag
+        id: tag
+        shell: pwsh
+        run: |
+          $tag = $env:GITHUB_REF_NAME
+          # Stricter than the app (AppVersion.TryParseTag, which reads "v01" as 1): no leading zeros, at most 5 digits,
+          # lower-case v. A tag the app reads differently would publish a setup it names differently and never offers.
+          if ($tag -cnotmatch '^v(0|[1-9]\d{0,4})\.(0|[1-9]\d{0,4})\.(0|[1-9]\d{0,4})$') { throw "tag '$tag' isn't vX.Y.Z" }
+          $version = $tag.Substring(1)
+          [xml]$project = Get-Content src/Yolime.App/Yolime.App.csproj -Raw
+          $declared = @($project.Project.PropertyGroup | ForEach-Object { $_.Version } | Where-Object { $_ })[0]
+          if ($declared -ne $version) { throw "the tag says $version but Yolime.App.csproj says '$declared'" }
+          $commit = (git rev-parse "$tag^{commit}").Trim()
+          git merge-base --is-ancestor $commit origin/main
+          if ($LASTEXITCODE -ne 0) { throw "$tag ($commit) isn't on main" }
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "commit=$commit" >> $env:GITHUB_OUTPUT
+
+      - name: Restore (locked)
+        run: dotnet restore --locked-mode
+
+      - name: Build and test (Release)
+        shell: pwsh
+        run: |
+          dotnet build -c Release --no-restore
+          if ($LASTEXITCODE -ne 0) { throw "build failed" }
+          dotnet test -c Release --no-build
+          if ($LASTEXITCODE -ne 0) { throw "tests failed" }
+
+      # The same checked publish CI makes, then the setup from it. Inno Setup is preinstalled on the runner image;
+      # build-setup prints which ISCC it used, and the .iss refuses anything older than 6.3.
+      - name: Publish and build the setup
+        shell: pwsh
+        run: |
+          dotnet publish src\Yolime.App -c Release -o artifacts\publish
+          if ($LASTEXITCODE -ne 0) { throw "publish failed" }
+          ./tools/build-setup.ps1 -PublishDir artifacts\publish
+          if ($LASTEXITCODE -ne 0) { throw "build-setup failed" }
+
+      # The exe must say exactly this version and this commit, and the release's files get the names the updater
+      # builds for itself (GitHub would rename the "+" in build-setup's file name).
+      - name: Name the release files
+        shell: pwsh
+        env:
+          VERSION: ${{ steps.tag.outputs.version }}
+          COMMIT: ${{ steps.tag.outputs.commit }}
+        run: |
+          $product = (Get-Item artifacts\publish\Yolime.App.exe).VersionInfo.ProductVersion.Trim()
+          if ($product -ne "$env:VERSION+$env:COMMIT") { throw "the exe says '$product', expected '$env:VERSION+$env:COMMIT'" }
+          New-Item -ItemType Directory -Force dist | Out-Null
+          $name = "yolime-setup-$env:VERSION.exe"
+          Copy-Item (Get-Item artifacts\setup\*.exe).FullName "dist\$name"
+          # The updater refuses a setup whose own file version isn't the release's: check it before publishing.
+          $file = (Get-Item "dist\$name").VersionInfo
+          $parts = $env:VERSION.Split('.')
+          if ($file.FileMajorPart -ne [int]$parts[0] -or $file.FileMinorPart -ne [int]$parts[1] -or $file.FileBuildPart -ne [int]$parts[2] -or $file.FilePrivatePart -ne 0) {
+              throw "the setup's file version is $($file.FileVersion), not $env:VERSION"
+          }
+          $hash = (Get-FileHash "dist\$name" -Algorithm SHA256).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText("$PWD\dist\SHA256SUMS.txt", "$hash  $name`n")
+          "Release files for v${env:VERSION}: ``$name`` SHA-256 ``$hash``" >> $env:GITHUB_STEP_SUMMARY
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release
+          path: dist/*
+          retention-days: 7
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ github.ref_name }}
+      VERSION: ${{ needs.build.outputs.version }}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release
+          path: dist
+
+      - name: Check the files against their sums
+        run: cd dist && sha256sum --check --strict SHA256SUMS.txt
+
+      # A published release for this tag is final (and immutable). This one must also be newer than the current
+      # latest, which it will replace: tagging an older version late would otherwise make it "latest". Drafts left by
+      # an earlier failed run are deleted (releases/tags/ doesn't list drafts, so look through the list).
+      - name: Clear the way
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh api "repos/$GH_REPO/releases/tags/$TAG" > /dev/null 2>&1; then
+            echo "::error::$TAG is already published"; exit 1
+          fi
+          # A 404 means no release yet. Any other failure stops here: a gate that can't see the latest mustn't pass.
+          # (gh prints an error's body on stdout, so the exit status and stderr decide, not what was captured.)
+          if latest=$(gh api "repos/$GH_REPO/releases/latest" --jq .tag_name 2> latest.err); then :
+          elif grep -q 'HTTP 404' latest.err; then latest=""
+          else cat latest.err >&2; exit 1; fi
+          if [ -n "$latest" ] && ! [[ "$latest" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::the latest release's tag '$latest' isn't vX.Y.Z"; exit 1
+          fi
+          if [ -n "$latest" ] && [ "$(printf '%s\n%s\n' "${latest#v}" "$VERSION" | sort -V | tail -n1)" != "$VERSION" -o "${latest#v}" = "$VERSION" ]; then
+            echo "::error::$TAG isn't newer than the latest release, $latest"; exit 1
+          fi
+          ids=$(gh api --paginate "repos/$GH_REPO/releases?per_page=100" --jq ".[] | select(.draft and .tag_name == \"$TAG\") | .id")
+          for id in $ids; do gh api -X DELETE "repos/$GH_REPO/releases/$id"; done
+
+      # Created as a draft through the API (so its id comes from the creation itself, not a lookup), given exactly the
+      # two files, read back and compared with what was built, and only then published as the latest.
+      - name: Publish
+        shell: bash
+        run: |
+          set -euo pipefail
+          id=$(gh api -X POST "repos/$GH_REPO/releases" -f tag_name="$TAG" -f name="yolime $VERSION" \
+            -F draft=true -F generate_release_notes=true --jq .id)
+          for file in "yolime-setup-$VERSION.exe" SHA256SUMS.txt; do
+            gh api -X POST -H "Content-Type: application/octet-stream" --input "dist/$file" \
+              "https://uploads.github.com/repos/$GH_REPO/releases/$id/assets?name=$file" > /dev/null
+          done
+          count=$(gh api "repos/$GH_REPO/releases/$id/assets" --jq length)
+          if [ "$count" != 2 ]; then echo "::error::the draft has $count assets, not 2"; exit 1; fi
+          mkdir check
+          for asset in $(gh api "repos/$GH_REPO/releases/$id/assets" --jq '.[].id'); do
+            name=$(gh api "repos/$GH_REPO/releases/assets/$asset" --jq .name)
+            gh api -H "Accept: application/octet-stream" "repos/$GH_REPO/releases/assets/$asset" > "check/$name"
+          done
+          cmp dist/SHA256SUMS.txt check/SHA256SUMS.txt
+          (cd check && sha256sum --check --strict ../dist/SHA256SUMS.txt)
+          gh api -X PATCH "repos/$GH_REPO/releases/$id" -F draft=false -f make_latest=true > /dev/null
+          echo "Published $TAG" >> "$GITHUB_STEP_SUMMARY"
+
+  # The published release, read the way yolime reads it: the feed, the redirect, the sums, the setup's hash and its
+  # file version (UpdateLiveSmokeTests). A separate workflow on "release: published" wouldn't run: events caused by
+  # the job token don't start workflows.
+  smoke:
+    needs: [build, release]
+    runs-on: windows-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: global.json
+
+      - name: Update smoke test
+        shell: pwsh
+        env:
+          YOLIME_LIVE: '1'
+          YOLIME_UPDATE_REPO: ${{ github.repository }}
+          # Shared runner IPs use up the anonymous rate limit; the client sends this to api.github.com only.
+          YOLIME_UPDATE_TOKEN: ${{ github.token }}
+          # So the test fails if "latest" turned out to be some other release.
+          YOLIME_UPDATE_EXPECT: ${{ needs.build.outputs.version }}
+        run: |
+          dotnet test --project tests/Yolime.Core.Tests --filter "FullyQualifiedName~UpdateLiveSmoke"
+          if ($LASTEXITCODE -ne 0) { throw "the published release failed the update smoke test" }

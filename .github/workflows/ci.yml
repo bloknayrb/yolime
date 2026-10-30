@@ -1,0 +1,102 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: global.json
+
+      - name: Restore (locked)
+        run: dotnet restore --locked-mode
+
+      # A project with no lock file passes a locked restore and gets a fresh one written, so check nothing changed.
+      - name: Lock files committed and unchanged
+        shell: bash
+        run: |
+          changed="$(git status --porcelain -- '**/packages.lock.json')"
+          if [ -n "$changed" ]; then echo "$changed"; echo "::error::packages.lock.json missing or stale"; exit 1; fi
+
+      - name: Build (Release)
+        run: dotnet build -c Release --no-restore
+
+      - name: Test (Release)
+        run: dotnet test -c Release --no-build
+
+      - name: Build (E2E)
+        run: dotnet build -p:YolimeE2E=true
+
+      - name: Test (E2E)
+        run: dotnet test -p:YolimeE2E=true --no-build
+
+      # Test-only code must be absent from Release and present in E2E (the second case proves the check can fail).
+      - name: Release build has no test code
+        shell: pwsh
+        env:
+          YOLIME_RELEASE_DLL_DIR: ${{ github.workspace }}\src\Yolime.App\bin\x64\Release\net10.0-windows10.0.19041.0\win-x64
+          YOLIME_E2E_DLL_DIR: ${{ github.workspace }}\src\Yolime.App\bin\e2e\x64\Debug\net10.0-windows10.0.19041.0\win-x64
+        run: dotnet test -c Release --no-build --filter "FullyQualifiedName~ReleaseHasNoTestCode"
+
+      # What tools/install.ps1 installs: a publish must carry Yolime.App.pri and no E2E code, and the check must be
+      # able to fail (the E2E build is refused).
+      - name: Publish and check
+        shell: pwsh
+        run: |
+          dotnet publish src\Yolime.App -c Release -o artifacts\publish
+          if ($LASTEXITCODE -ne 0) { throw "publish failed" }
+          ./tools/check-publish.ps1 -Folder artifacts\publish
+          if ($LASTEXITCODE -ne 0) { throw "the publish check failed" }
+          $out = ./tools/check-publish.ps1 -Folder src\Yolime.App\bin\e2e\x64\Debug\net10.0-windows10.0.19041.0\win-x64 6>&1 | Out-String
+          if ($LASTEXITCODE -eq 0 -or $out -notmatch 'contains E2E-only code') { throw "the publish check didn't refuse the E2E build for its test code: $out" }
+          # A Release folder with only Yolime.Core.dll from the E2E build must fail on Core's own markers.
+          Copy-Item artifacts\publish $env:RUNNER_TEMP\mixed -Recurse
+          Copy-Item src\Yolime.App\bin\e2e\x64\Debug\net10.0-windows10.0.19041.0\win-x64\Yolime.Core.dll $env:RUNNER_TEMP\mixed -Force
+          $out = ./tools/check-publish.ps1 -Folder $env:RUNNER_TEMP\mixed 6>&1 | Out-String
+          if ($LASTEXITCODE -eq 0 -or $out -notmatch 'Yolime.Core.dll') { throw "the publish check didn't refuse an E2E Yolime.Core.dll: $out" }
+          $global:LASTEXITCODE = 0
+
+      # yolime-setup.exe from that same checked publish, on every run so a broken installer\yolime.iss fails here.
+      # Inno Setup comes preinstalled on the runner image; build-setup prints which ISCC it used.
+      - name: Build the setup
+        shell: pwsh
+        run: |
+          ./tools/build-setup.ps1 -PublishDir artifacts\publish
+          if ($LASTEXITCODE -ne 0) { throw "build-setup failed" }
+          $exe = Get-Item artifacts\setup\*.exe
+          "Setup: ``$($exe.Name)``, SHA-256 ``$((Get-FileHash $exe.FullName -Algorithm SHA256).Hash)``" >> $env:GITHUB_STEP_SUMMARY
+
+      # Only main's builds are offered for download, and not for long (each is ~80 MB of the repo's storage).
+      - name: Upload the setup
+        if: github.event_name == 'push'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: yolime-setup
+          path: artifacts/setup/*.exe
+          retention-days: 14
+          if-no-files-found: error
+
+      # End to end with fake STT: no network or key needed, and nothing touches the clipboard.
+      - name: E2E --test-audio with fake STT
+        shell: pwsh
+        run: |
+          $exe = "src\Yolime.App\bin\e2e\x64\Debug\net10.0-windows10.0.19041.0\win-x64\Yolime.App.exe"
+          $out = Join-Path $env:RUNNER_TEMP "e2e-out.txt"
+          $data = Join-Path $env:RUNNER_TEMP "e2e-data"
+          # Start-Process joins ArgumentList with spaces and doesn't quote, so keep every argument space-free.
+          $p = Start-Process $exe -ArgumentList @('--test-audio', 'tests\fixtures\audio\speech-short.wav', '--test-transcript', 'hello-e2e', '--test-out', $out, '--test-data-dir', $data) -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "exit code $($p.ExitCode)" }
+          if ((Get-Content $out -Raw) -ne 'hello-e2e') { throw "unexpected output" }

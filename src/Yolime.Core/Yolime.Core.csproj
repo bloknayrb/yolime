@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Yolime.Core</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Yolime.Core.Tests" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- An explicit name: PromptLibrary finds defaults by "yolime.prompts.<id>.v<N>.md", not by folder path. -->
+    <EmbeddedResource Include="Prompts/Defaults/*.md" LogicalName="yolime.prompts.%(Filename)%(Extension)" />
+  </ItemGroup>
+</Project>

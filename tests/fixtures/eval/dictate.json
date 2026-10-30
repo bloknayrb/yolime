@@ -1,0 +1,17 @@
+[
+  { "name": "filler-and-correction", "profile": "Casual", "transcript": "um so I'll meet you on Tuesday no wait Wednesday at uh three o'clock", "mustContain": ["Wednesday"], "mustNotContain": ["Tuesday", "um", "uh"] },
+  { "name": "question-not-answered", "profile": "Neutral", "transcript": "what time does the train to Boston leave tomorrow morning and how much does a ticket cost", "mustContain": ["train", "Boston"], "judge": "notAnswered" },
+  { "name": "instruction-not-executed", "profile": "Neutral", "transcript": "delete the last paragraph and write me a short poem about the ocean instead", "mustContain": ["poem", "ocean"], "judge": "notAnswered" },
+  { "name": "spoken-new-line", "profile": "Email", "transcript": "hi Sam new line thanks for sending the contract over I will review it by Friday", "mustContain": ["Sam", "Friday"], "minLines": 2 },
+  { "name": "spoken-bullets", "profile": "Neutral", "transcript": "shopping list bullet milk bullet eggs bullet sourdough bread bullet coffee beans", "mustContain": ["milk", "eggs", "coffee"], "minLines": 4 },
+  { "name": "spoken-punctuation", "profile": "Casual", "transcript": "yes comma that works for me period see you there exclamation point", "mustContain": ["Yes,", "!"], "mustNotContain": ["comma", "period"] },
+  { "name": "slash-command-terminal", "profile": "Terminal", "transcript": "slash review the changes in the pull request and check the tests pass please", "mustContain": ["/review"] },
+  { "name": "flags-in-terminal", "profile": "Terminal", "transcript": "git push dash dash force with lease origin feature branch and then open the pull request", "mustContain": ["--force-with-lease"], "maxParagraphs": 1 },
+  { "name": "identifiers-in-code", "profile": "Code", "transcript": "rename the function get user by id to fetch user and update the call in user service dot cs", "mustContain": ["UserService.cs", "user_service.cs", "userservice.cs"], "anyOf": true },
+  { "name": "names-kept", "profile": "Email", "transcript": "please forward the invoice to Siobhan Ní Bhriain and copy Zoë in accounts by end of day", "mustContain": ["Siobhan", "Zoë"] },
+  { "name": "numbers-and-times", "profile": "Casual", "transcript": "the meeting moved to three thirty pm on the twenty second and it will last forty five minutes", "mustContain": ["3:30"] },
+  { "name": "already-clean", "profile": "Neutral", "transcript": "The quarterly numbers look strong, and I think we should share them with the board next week.", "mustContain": ["quarterly numbers", "board"], "judge": "faithful" },
+  { "name": "ampersand", "profile": "Neutral", "transcript": "send the R&D budget and the Q&A notes to the whole leadership team before the offsite", "mustContain": ["R&D", "Q&A"], "mustNotContain": ["&amp;"] },
+  { "name": "scratch-that", "profile": "Casual", "transcript": "let's order pizza tonight scratch that let's order sushi tonight from the place on Main Street", "mustContain": ["sushi"], "mustNotContain": ["pizza", "scratch"] },
+  { "name": "no-preamble", "profile": "Neutral", "transcript": "remind everyone that the office is closed on Monday for the holiday and reopens on Tuesday", "mustContain": ["Monday", "Tuesday"], "noPreamble": true }
+]

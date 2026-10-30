@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Yolime.App/Yolime.App.csproj">
+      <Platform Project="x64" />
+    </Project>
+    <Project Path="src/Yolime.Core/Yolime.Core.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Yolime.Core.Tests/Yolime.Core.Tests.csproj" />
+    <Project Path="tests/Yolime.E2E/Yolime.E2E.csproj" />
+  </Folder>
+</Solution>
