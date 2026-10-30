@@ -390,7 +390,7 @@ internal sealed class SettingsWindow : Window
             }
             catch (Exception ex) when (ex is Yolime.Core.Audio.AudioCaptureException or System.Runtime.InteropServices.COMException)
             {
-                _ui.TryEnqueue(() => Say(InfoBarSeverity.Warning, "Microphone", "yolime couldn't open the microphone. Check Windows' microphone privacy setting."));
+                _ui.TryEnqueue(() => Say(InfoBarSeverity.Warning, "Microphone", WelcomeWindow.MicTestProblem(ex)));
             }
             finally
             {
@@ -536,6 +536,7 @@ internal sealed class SettingsWindow : Window
             TextWrapping = TextWrapping.Wrap,
             Height = 180,
             Width = 420,
+            HorizontalAlignment = HorizontalAlignment.Left,
             PlaceholderText = "One per line: names, product terms, jargon",
         };
         var wordsHelp = Help("Sent with each recording so the transcriber spells these right.");
@@ -627,7 +628,8 @@ internal sealed class SettingsWindow : Window
         Heading("Advanced");
 
         var models = new List<string> { ModelIds.Sonnet, ModelIds.Haiku };
-        var model = new ComboBox { ItemsSource = models, SelectedIndex = Math.Max(0, models.IndexOf(S.PromptModel)) };
+        // Named as the help text names them; the ids stay in settings.json.
+        var model = new ComboBox { ItemsSource = new List<string> { "Sonnet", "Haiku" }, SelectedIndex = Math.Max(0, models.IndexOf(S.PromptModel)) };
         model.SelectionChanged += (_, _) => Save(s => s with { PromptModel = models[model.SelectedIndex] });
         Row("Prompt model", model, Help("Sonnet writes better prompts; Haiku is faster and cheaper."));
 
@@ -737,6 +739,8 @@ internal sealed class SettingsWindow : Window
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetLiveSetting(help, Microsoft.UI.Xaml.Automation.Peers.AutomationLiveSetting.Polite);
         var panel = new StackPanel { Spacing = 6 };
         panel.Children.Add(new TextBlock { Text = label, Style = (Style)Application.Current.Resources["BodyStrongTextBlockStyle"] });
+        // A fixed-width control would otherwise be centred in the page's column.
+        if (control is FrameworkElement { Width: > 0 } fixedWidth) fixedWidth.HorizontalAlignment = HorizontalAlignment.Left;
         panel.Children.Add(control);
         panel.Children.Add(help);
         _page.Children.Add(panel);

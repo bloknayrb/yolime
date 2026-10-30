@@ -25,6 +25,9 @@ internal sealed class WelcomeWindow : Window
     private readonly StackPanel _body = new() { Spacing = 14 };
     private readonly TextBlock _stepLabel = new() { Opacity = 0.7 };
     private readonly Button _back = new() { Content = "Back" };
+    private readonly HyperlinkButton _skip = new() { Content = "Skip setup" };
+    // Shown under the mic test's message only when Windows denied the mic (not when there is none).
+    private readonly HyperlinkButton _micPrivacy = new() { Content = "Open privacy settings", Visibility = Visibility.Collapsed };
     private readonly Button _next = new() { Content = "Next", Style = (Style)Application.Current.Resources["AccentButtonStyle"] };
     private readonly nint _hwnd;
     private int _step;
@@ -45,8 +48,8 @@ internal sealed class WelcomeWindow : Window
         Title = "Welcome to yolime";
         SystemBackdrop = new MicaBackdrop();
 
-        var skip = new HyperlinkButton { Content = "Skip setup" };
-        skip.Click += (_, _) => Finish();
+        _skip.Click += (_, _) => Finish();
+        _micPrivacy.Click += (_, _) => _ = Windows.System.Launcher.LaunchUriAsync(new Uri("ms-settings:privacy-microphone"));
         _back.Click += (_, _) => Go(_step - 1);
         _next.Click += (_, _) =>
         {
@@ -54,7 +57,7 @@ internal sealed class WelcomeWindow : Window
             else Go(_step + 1);
         };
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Right };
-        buttons.Children.Add(skip);
+        buttons.Children.Add(_skip);
         buttons.Children.Add(_back);
         buttons.Children.Add(_next);
 
@@ -122,6 +125,8 @@ internal sealed class WelcomeWindow : Window
         _stepLabel.Text = $"Step {_step + 1} of {Steps}";
         _back.IsEnabled = _step > 0;
         _next.Content = _step == Steps - 1 ? "Finish" : "Next";
+        // On the last step Skip would do exactly what Finish does.
+        _skip.Visibility = _step == Steps - 1 ? Visibility.Collapsed : Visibility.Visible;
         _body.Children.Clear();
         switch (_step)
         {
@@ -139,8 +144,8 @@ internal sealed class WelcomeWindow : Window
         Text("yolime needs a transcription key. An OpenAI key is the default; Claude is optional and powers Prompt, Reply " +
              "and Dictate clean-up. Keys are stored in Windows Credential Manager for your account. Use project keys with " +
              "a spending limit.");
-        KeyRow(SttEndpoint.OpenAiKeyName, "OpenAI key");
-        KeyRow(ClaudeRewriter.KeyName, "Claude key (optional)");
+        KeyRow(SttEndpoint.OpenAiKeyName, "OpenAI (transcription)");
+        KeyRow(ClaudeRewriter.KeyName, "Claude (Prompt, Reply, Dictate clean-up), optional");
     }
 
     private void KeyRow(string slot, string label)
@@ -158,7 +163,15 @@ internal sealed class WelcomeWindow : Window
         };
         var box = new PasswordBox { Width = 320, PlaceholderText = "Paste a key" };
         var save = new Button { Content = "Save and test" };
-        save.Click += async (_, _) =>
+        // Enter in the box saves and tests, unless a test is already running.
+        box.KeyDown += (_, e) =>
+        {
+            if (e.Key != Windows.System.VirtualKey.Enter || !save.IsEnabled) return;
+            e.Handled = true;
+            _ = SaveAndTestAsync();
+        };
+        save.Click += async (_, _) => await SaveAndTestAsync();
+        async Task SaveAndTestAsync()
         {
             var key = box.Password;
             if (key.Length > 0)
@@ -183,7 +196,7 @@ internal sealed class WelcomeWindow : Window
                 KeyTestResult.NotSet => "Paste a key first.",
                 _ => "Saved, but the provider couldn't be reached to check it.",
             };
-        };
+        }
         _body.Children.Add(new TextBlock { Text = label, Style = (Style)Application.Current.Resources["BodyStrongTextBlockStyle"] });
         var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
         row.Children.Add(box);
@@ -207,11 +220,16 @@ internal sealed class WelcomeWindow : Window
         {
             var id = box.SelectedIndex <= 0 ? null : mics[box.SelectedIndex - 1].Id;
             _host.Settings.Update(s => s with { MicDeviceId = id });
+            // A new device starts clean: the last one's failure (and its privacy link) no longer applies.
+            note.Text = "Say something: the bar should move.";
+            _micPrivacy.Visibility = Visibility.Collapsed;
             StartMeter(level, note);
         };
         _body.Children.Add(box);
         _body.Children.Add(level);
         _body.Children.Add(note);
+        _micPrivacy.Visibility = Visibility.Collapsed;
+        _body.Children.Add(_micPrivacy);
         StartMeter(level, note);
     }
 
@@ -226,19 +244,23 @@ internal sealed class WelcomeWindow : Window
             Height = 48,
             CornerRadius = new CornerRadius(24),
             HorizontalAlignment = HorizontalAlignment.Left,
-            Background = new SolidColorBrush(Microsoft.UI.Colors.Gray),
-            Child = new TextBlock { Text = "Not held", HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Foreground = new SolidColorBrush(Microsoft.UI.Colors.White) },
+            // Theme brushes: the fixed grey and green read poorly (white on light green was about 2:1) and ignored dark mode.
+            Background = Brush("ControlFillColorSecondaryBrush"),
+            BorderBrush = Brush("ControlStrokeColorDefaultBrush"),
+            BorderThickness = new Thickness(1),
+            Child = new TextBlock { Text = "Not held", HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Foreground = Brush("TextFillColorPrimaryBrush") },
         };
         _body.Children.Add(light);
         _holdHandler = down => _ui.TryEnqueue(() =>
         {
-            light.Background = new SolidColorBrush(down ? Microsoft.UI.ColorHelper.FromArgb(255, 0x8B, 0xC3, 0x4A) : Microsoft.UI.Colors.Gray);
+            light.Background = Brush(down ? "AccentFillColorDefaultBrush" : "ControlFillColorSecondaryBrush");
+            ((TextBlock)light.Child).Foreground = Brush(down ? "TextOnAccentFillColorPrimaryBrush" : "TextFillColorPrimaryBrush");
             ((TextBlock)light.Child).Text = down ? "Held: it works" : "Not held";
         });
         _host.Hooks.HoldKeySeen += _holdHandler;
         _host.Hooks.SuppressRuns = true;
 
-        Text("If your keyboard has no Right Ctrl, choose Right Shift or Pause.");
+        Text("If that key doesn't suit your keyboard, choose another:");
         var choices = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
         foreach (var vk in new[] { HoldKeyRules.RightCtrl, HoldKeyRules.RightShift, HoldKeyRules.Pause })
         {
@@ -248,7 +270,8 @@ internal sealed class WelcomeWindow : Window
             {
                 if (code == _host.Settings.Current.HoldKeyVk) return;
                 _host.Settings.Update(s => s with { HoldKeyVk = code });
-                Go(2);
+                // Updated in place, not by rebuilding the step: a rebuild dropped keyboard focus after one arrow press.
+                if (_body.Children.Count > 0 && _body.Children[0] is TextBlock heading) heading.Text = $"Hold {HoldKeyRules.Name(code)}";
             };
             choices.Children.Add(b);
         }
@@ -304,10 +327,23 @@ internal sealed class WelcomeWindow : Window
             }
             catch (Exception ex) when (ex is Yolime.Core.Audio.AudioCaptureException or System.Runtime.InteropServices.COMException)
             {
-                _ui.TryEnqueue(() => note.Text = "yolime couldn't open the microphone. Check Windows' microphone privacy setting.");
+                _ui.TryEnqueue(() =>
+                {
+                    note.Text = MicTestProblem(ex);
+                    // The privacy link only where privacy is the likely cause: not for a missing or lost device.
+                    var denied = ex is Yolime.Core.Audio.AudioCaptureException { Error: Yolime.Core.Audio.CaptureError.AccessDenied } or System.Runtime.InteropServices.COMException;
+                    _micPrivacy.Visibility = denied ? Visibility.Visible : Visibility.Collapsed;
+                });
             }
         });
     }
+
+    /// <summary>Why the mic test couldn't start: no microphone isn't a privacy setting.</summary>
+    internal static string MicTestProblem(Exception ex) => ex is Yolime.Core.Audio.AudioCaptureException { Error: Yolime.Core.Audio.CaptureError.NoDevice }
+        ? "No microphone found. Connect one, then try again."
+        : "yolime couldn't open the microphone. Check Windows' microphone privacy setting.";
+
+    private static Brush Brush(string key) => (Brush)Application.Current.Resources[key];
 
     private void StopMeter()
     {
