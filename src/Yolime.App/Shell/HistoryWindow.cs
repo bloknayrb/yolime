@@ -84,7 +84,9 @@ internal sealed partial class HistoryWindow : Window
         {
             // Each row is drawn from code and named for Narrator with everything it shows.
             if (e.InRecycleQueue || e.Item is not HistoryItem item || e.ItemContainer is not ListViewItem container) return;
+            // A container whose template isn't applied yet has no root: draw the row as its content, never leave it blank.
             if (container.ContentTemplateRoot is Border root) root.Child = RowView(item);
+            else container.Content = RowView(item);
             AutomationProperties.SetName(container, item.AccessibleName);
             e.Handled = true;
         };
