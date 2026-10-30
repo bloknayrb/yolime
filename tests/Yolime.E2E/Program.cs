@@ -62,6 +62,8 @@ internal static class Program
                 ("KeepMicReady_ReusesTheMic_NothingFromTheGap_PauseCloses", () => (KeepMicReadyRun(scenarios, out var a), a)),
                 // A first run on an empty data folder: it opens the wizard, and Skip ends it.
                 ("Wizard_FirstRun_SkipMarksDone", () => (FirstRunWizard(out var a), a)),
+                // The wizard's key paths: Enter in a key box saves and tests; arrowing between hold keys keeps focus.
+                ("Wizard_EnterSavesKey_ArrowsKeepFocus", () => (WizardKeyPaths(out var a), a)),
                 // Windows' text size at 150%: the cards still fit, now that their text is half as large again.
                 ("Cards_FitAt150PercentText", () => (CardsAtTextScale(out var a), a)),
             };
@@ -150,6 +152,51 @@ internal static class Program
         if (!Wait(() => File.Exists(settings) && File.ReadAllText(settings).Contains("\"firstRunDone\": true", StringComparison.Ordinal), 5000))
             return "Skip didn't record firstRunDone";
         return Wait(() => automation.GetDesktop().FindFirstChild(cf => cf.ByName("Welcome to yolime")) is null, 3000) ? null : "the wizard stayed open";
+    }
+
+    /// <summary>
+    /// Welcome's keyboard paths, from a first run: typing a (fake) key and pressing Enter runs Save and test (the status
+    /// line changes from "Not set yet."); on the hold-key step, an arrow key moves to the next key and focus stays on the
+    /// radio buttons (the step used to rebuild itself and drop focus).
+    /// </summary>
+    private static string? WizardKeyPaths(out Process? app)
+    {
+        app = null;
+        const string data = @"C:\e2edata-wizard";
+        if (!Wait(() => Process.GetProcessesByName("Yolime.App").Length == 0, 15_000)) return "the previous app never exited";
+        Thread.Sleep(1000);
+        var start = new ProcessStartInfo(Path.Combine(Root, "app", "Yolime.App.exe")) { UseShellExecute = false };
+        foreach (var a in new[] { "--e2e", "--test-mic", $@"{Root}\fixtures\speech-short.wav", "--test-first-run", "--test-data-dir", data, "--e2e-results", $@"{Results}\app-wizard" })
+            start.ArgumentList.Add(a);
+        app = Process.Start(start);
+        if (!Wait(() => File.Exists(Path.Combine(Results, "app-wizard", "ready")), 20_000)) return "the fresh app never became ready";
+        using var automation = new FlaUI.UIA3.UIA3Automation();
+        FlaUI.Core.AutomationElements.AutomationElement? window = null;
+        if (!Wait(() => (window = automation.GetDesktop().FindFirstChild(cf => cf.ByName("Welcome to yolime"))) is not null, 10_000)) return "the wizard never opened";
+        Thread.Sleep(800);
+        var box = window!.FindFirstDescendant(cf => cf.ByControlType(FlaUI.Core.Definitions.ControlType.Edit));
+        if (box is null) return "no key box";
+        box.Focus();
+        Thread.Sleep(300);
+        foreach (var vk in new ushort[] { 0x46, 0x41, 0x4B, 0x45 }) Input.Tap(vk); // "fake"
+        Input.Tap(Input.Enter);
+        if (!Wait(() => window.FindFirstDescendant(cf => cf.ByName("Not set yet.")) is null, 5000)) return "Enter in the key box did nothing";
+        var next = window.FindFirstDescendant(cf => cf.ByName("Next").And(cf.ByControlType(FlaUI.Core.Definitions.ControlType.Button)));
+        if (next is null) return "no Next";
+        next.Patterns.Invoke.Pattern.Invoke();
+        Thread.Sleep(600);
+        next.Patterns.Invoke.Pattern.Invoke();
+        Thread.Sleep(800);
+        var radios = window.FindAllDescendants(cf => cf.ByControlType(FlaUI.Core.Definitions.ControlType.RadioButton));
+        if (radios.Length < 2) return $"the hold-key step has {radios.Length} keys";
+        radios[0].Focus();
+        Thread.Sleep(300);
+        Input.Tap(0x27); // Right arrow
+        Thread.Sleep(800);
+        var focused = automation.FocusedElement();
+        if (focused?.ControlType != FlaUI.Core.Definitions.ControlType.RadioButton) return $"focus left the keys (now on a {focused?.ControlType})";
+        var heading = window.FindFirstDescendant(cf => cf.ByName("Hold " + focused.Name));
+        return heading is null ? $"the heading didn't follow the key ({focused.Name})" : null;
     }
 
     /// <summary>

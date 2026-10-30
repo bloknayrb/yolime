@@ -25,6 +25,9 @@ internal sealed class WelcomeWindow : Window
     private readonly StackPanel _body = new() { Spacing = 14 };
     private readonly TextBlock _stepLabel = new() { Opacity = 0.7 };
     private readonly Button _back = new() { Content = "Back" };
+    private readonly HyperlinkButton _skip = new() { Content = "Skip setup" };
+    // Shown under the mic test's message only when Windows denied the mic (not when there is none).
+    private readonly HyperlinkButton _micPrivacy = new() { Content = "Open privacy settings", Visibility = Visibility.Collapsed };
     private readonly Button _next = new() { Content = "Next", Style = (Style)Application.Current.Resources["AccentButtonStyle"] };
     private readonly nint _hwnd;
     private int _step;
@@ -45,8 +48,8 @@ internal sealed class WelcomeWindow : Window
         Title = "Welcome to yolime";
         SystemBackdrop = new MicaBackdrop();
 
-        var skip = new HyperlinkButton { Content = "Skip setup" };
-        skip.Click += (_, _) => Finish();
+        _skip.Click += (_, _) => Finish();
+        _micPrivacy.Click += (_, _) => _ = Windows.System.Launcher.LaunchUriAsync(new Uri("ms-settings:privacy-microphone"));
         _back.Click += (_, _) => Go(_step - 1);
         _next.Click += (_, _) =>
         {
@@ -54,7 +57,7 @@ internal sealed class WelcomeWindow : Window
             else Go(_step + 1);
         };
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Right };
-        buttons.Children.Add(skip);
+        buttons.Children.Add(_skip);
         buttons.Children.Add(_back);
         buttons.Children.Add(_next);
 
@@ -122,6 +125,8 @@ internal sealed class WelcomeWindow : Window
         _stepLabel.Text = $"Step {_step + 1} of {Steps}";
         _back.IsEnabled = _step > 0;
         _next.Content = _step == Steps - 1 ? "Finish" : "Next";
+        // On the last step Skip would do exactly what Finish does.
+        _skip.Visibility = _step == Steps - 1 ? Visibility.Collapsed : Visibility.Visible;
         _body.Children.Clear();
         switch (_step)
         {
@@ -158,7 +163,15 @@ internal sealed class WelcomeWindow : Window
         };
         var box = new PasswordBox { Width = 320, PlaceholderText = "Paste a key" };
         var save = new Button { Content = "Save and test" };
-        save.Click += async (_, _) =>
+        // Enter in the box saves and tests, unless a test is already running.
+        box.KeyDown += (_, e) =>
+        {
+            if (e.Key != Windows.System.VirtualKey.Enter || !save.IsEnabled) return;
+            e.Handled = true;
+            _ = SaveAndTestAsync();
+        };
+        save.Click += async (_, _) => await SaveAndTestAsync();
+        async Task SaveAndTestAsync()
         {
             var key = box.Password;
             if (key.Length > 0)
@@ -183,7 +196,7 @@ internal sealed class WelcomeWindow : Window
                 KeyTestResult.NotSet => "Paste a key first.",
                 _ => "Saved, but the provider couldn't be reached to check it.",
             };
-        };
+        }
         _body.Children.Add(new TextBlock { Text = label, Style = (Style)Application.Current.Resources["BodyStrongTextBlockStyle"] });
         var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
         row.Children.Add(box);
@@ -212,6 +225,8 @@ internal sealed class WelcomeWindow : Window
         _body.Children.Add(box);
         _body.Children.Add(level);
         _body.Children.Add(note);
+        _micPrivacy.Visibility = Visibility.Collapsed;
+        _body.Children.Add(_micPrivacy);
         StartMeter(level, note);
     }
 
@@ -252,7 +267,8 @@ internal sealed class WelcomeWindow : Window
             {
                 if (code == _host.Settings.Current.HoldKeyVk) return;
                 _host.Settings.Update(s => s with { HoldKeyVk = code });
-                Go(2);
+                // Updated in place, not by rebuilding the step: a rebuild dropped keyboard focus after one arrow press.
+                if (_body.Children.Count > 0 && _body.Children[0] is TextBlock heading) heading.Text = $"Hold {HoldKeyRules.Name(code)}";
             };
             choices.Children.Add(b);
         }
@@ -308,7 +324,12 @@ internal sealed class WelcomeWindow : Window
             }
             catch (Exception ex) when (ex is Yolime.Core.Audio.AudioCaptureException or System.Runtime.InteropServices.COMException)
             {
-                _ui.TryEnqueue(() => note.Text = MicTestProblem(ex));
+                _ui.TryEnqueue(() =>
+                {
+                    note.Text = MicTestProblem(ex);
+                    var noMic = ex is Yolime.Core.Audio.AudioCaptureException { Error: Yolime.Core.Audio.CaptureError.NoDevice };
+                    _micPrivacy.Visibility = noMic ? Visibility.Collapsed : Visibility.Visible;
+                });
             }
         });
     }
