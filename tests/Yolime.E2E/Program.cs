@@ -180,7 +180,10 @@ internal static class Program
         Thread.Sleep(300);
         foreach (var vk in new ushort[] { 0x46, 0x41, 0x4B, 0x45 }) Input.Tap(vk); // "fake"
         Input.Tap(Input.Enter);
-        if (!Wait(() => window.FindFirstDescendant(cf => cf.ByName("Not set yet.")) is null, 5000)) return "Enter in the key box did nothing";
+        // The first slot's status moves on from "Not set yet." (the Claude slot below keeps it, so look for the new words).
+        if (!Wait(() => window.FindAllDescendants().Any(e => e.Properties.Name.ValueOrDefault is { } n
+                && (n.StartsWith("Saved", StringComparison.Ordinal) || n.StartsWith("That doesn't", StringComparison.Ordinal) || n.StartsWith("Testing", StringComparison.Ordinal))), 8000))
+            return "Enter in the key box did nothing";
         var next = window.FindFirstDescendant(cf => cf.ByName("Next").And(cf.ByControlType(FlaUI.Core.Definitions.ControlType.Button)));
         if (next is null) return "no Next";
         next.Patterns.Invoke.Pattern.Invoke();
