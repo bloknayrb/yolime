@@ -380,7 +380,20 @@ internal static class E2EMode
     private static void WriteDone(string path, string text)
     {
         File.WriteAllText(path + ".tmp", text);
-        File.Move(path + ".tmp", path + ".done", overwrite: true);
+        // The harness may be reading the old answer this instant (Defender may be scanning it): a refused replace is
+        // retried, not reported as the hook failing.
+        for (var attempt = 0; ; attempt++)
+        {
+            try
+            {
+                File.Move(path + ".tmp", path + ".done", overwrite: true);
+                return;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException && attempt < 20)
+            {
+                Thread.Sleep(25);
+            }
+        }
     }
 
     private static void Append(string path, string text) => Retry(path, text, FileMode.Append);

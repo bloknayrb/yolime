@@ -416,13 +416,27 @@ internal static partial class Tour
     {
         var path = Path.Combine(results, hook);
         var id = "r" + Interlocked.Increment(ref _request) + " ";
+        // Old answers go first: while one sat there, this loop kept it open, and the app's move of the new answer onto
+        // it was refused (UnauthorizedAccessException).
+        foreach (var stale in new[] { path + ".done", path + ".error" }) RetryIo(() => File.Delete(stale));
         // Written whole, then moved in: the hook must never read half a request.
         File.WriteAllText(path + ".req", id + arg);
         File.Move(path + ".req", path, overwrite: true);
-        string? Read(string file) => File.Exists(file) && RetryIo(() => File.ReadAllText(file)) is { } t && t.StartsWith(id, StringComparison.Ordinal) ? t[id.Length..] : null;
+        string? Read(string file) => File.Exists(file) && RetryIo(() => ReadShared(file)) is { } t && t.StartsWith(id, StringComparison.Ordinal) ? t[id.Length..] : null;
         string? answer = null;
         Program.Wait(() => (answer = Read(path + ".done") ?? (Read(path + ".error") is { } e ? "error " + e : null)) is not null, 5000);
         return answer;
+    }
+
+    /// <summary>Read without blocking the app from replacing or deleting the file meanwhile; null if it's just gone.</summary>
+    private static string? ReadShared(string file)
+    {
+        try
+        {
+            using var stream = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            return new StreamReader(stream).ReadToEnd();
+        }
+        catch (FileNotFoundException) { return null; }
     }
 
     private static T RetryIo<T>(Func<T> io)
