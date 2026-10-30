@@ -77,7 +77,8 @@ internal sealed partial class OverlayController : INoticeSink, IDisposable
         _root.PointerEntered += (_, _) => Post(new PointerOver(true));
         _root.PointerExited += (_, _) => Post(new PointerOver(false));
 
-        var pillButton = Button("Use raw", () => { if (_shown.HistoryId is { } id) UseRaw?.Invoke(id); Post(new UserTyped()); });
+        // It copies the raw transcript; "Use raw" read as replacing the paste.
+        var pillButton = Button("Copy raw", () => { if (_shown.HistoryId is { } id) UseRaw?.Invoke(id); Post(new UserTyped()); });
         var pillRoot = new Border { CornerRadius = new CornerRadius(12), Padding = new Thickness(6), Child = pillButton };
 
         _notch = new OverlayWindow("yolime-overlay", _root, clickThrough: true);
@@ -299,6 +300,8 @@ internal sealed partial class OverlayController : INoticeSink, IDisposable
         OverlayState.Error => ((char)0xE7BA).ToString(), // Warning
         OverlayState.Done => ((char)0xE73E).ToString(), // CheckMark
         OverlayState.Updating => ((char)0xE946).ToString(), // Info
+        // Dictate's mode glyph is the mic, which made "Transcribing…" look like it was still recording.
+        OverlayState.Working when view.Mode is Mode.Dictate or null => ((char)0xE895).ToString(), // Sync
         _ => view.Mode switch
         {
             Mode.Prompt => ((char)0xE8BD).ToString(), // Message
