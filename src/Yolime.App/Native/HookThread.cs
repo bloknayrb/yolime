@@ -84,6 +84,24 @@ internal sealed class HookThread : IDisposable
     /// <summary>Raised on the hook thread for each real key press while <see cref="WatchKeys"/> is on (the Use-raw offer).</summary>
     public event Action? UserKeyPressed;
 
+    /// <summary>
+    /// Raised on the hook thread for an Esc the user pressed while a card can be dismissed (<see cref="CardDismissable"/>)
+    /// and nothing else took it (no preview, no hold). The Esc still reaches the user's app: the card never has focus.
+    /// </summary>
+    public event Action? EscPressed;
+
+    /// <summary>Set from the overlay while an Error card shows, so not every Esc in Windows is reported.</summary>
+    public volatile bool CardDismissable;
+
+    /// <summary>
+    /// Raised on the hook thread with the preview's time left and whether hovering has paused it: on arming, on each
+    /// hover change, and whenever the shown second changes. A duration, since the UI keeps a different clock.
+    /// </summary>
+    public event Action<long, bool>? PreviewClocked;
+
+    private long _clockSecond = -1;
+    private bool _clockPaused;
+
     /// <summary>Whether to report the user's key presses (only while something wants them: it costs a post per key).</summary>
     public volatile bool WatchKeys;
 
@@ -104,9 +122,27 @@ internal sealed class HookThread : IDisposable
         {
             _preview.Arm(Environment.TickCount64, targetPid);
             InstallMouseHook();
+            PushPreviewClock(force: true);
             armed.TrySetResult();
         });
         return armed.Task;
+    }
+
+    /// <summary>The pointer entered or left the preview card: hovering pauses its deadline, within a cap (hook thread).</summary>
+    public void PreviewHover(bool over) => Post(() =>
+    {
+        _preview.Hover(over, Environment.TickCount64);
+        PushPreviewClock(force: true);
+    });
+
+    private void PushPreviewClock(bool force)
+    {
+        if (!_preview.Active) return;
+        var (remaining, paused) = _preview.Clock(Environment.TickCount64);
+        var second = (remaining + 999) / 1000;
+        if (!force && second == _clockSecond && paused == _clockPaused) return;
+        (_clockSecond, _clockPaused) = (second, paused);
+        PreviewClocked?.Invoke(remaining, paused);
     }
 
     public void DisarmPreview() => Post(() =>
@@ -270,6 +306,7 @@ internal sealed class HookThread : IDisposable
         // Read only when something is waiting on it: a pending switch, or the preview card.
         var front = (holding && _switch.Pending) || _preview.Active ? Sample(User32.GetForegroundWindow()) : default;
         if (_preview.Tick(now, front) is { } expired) PreviewSignaled?.Invoke(expired);
+        else PushPreviewClock(force: false);
         if (holding && _switch.Pending) Settle(_switch.Tick(front, now));
         _capture.ReleaseIfQuiet(Environment.TickCount64);
         if (_capture.Tick(Environment.TickCount64))
@@ -346,7 +383,12 @@ internal sealed class HookThread : IDisposable
                         _capturePid = front.IsReal || _lastRealPid == 0 ? (uint)front.Pid : _lastRealPid;
                         _switch.Reset((int)_capturePid);
                     }
-                    if (Feed(kind)) return 1;
+                    var swallowed = Feed(kind);
+                    // An Esc nothing took (not a hold's cancel, not the preview's discard) dismisses a card, and still
+                    // goes on to the user's app.
+                    if (!swallowed && kind == HotkeyKind.Esc && CardDismissable && !injected && k.ExtraInfo != HookReducer.OwnInputMarker && !_machine.HoldKeyDown)
+                        EscPressed?.Invoke();
+                    if (swallowed) return 1;
                 }
             }
         }

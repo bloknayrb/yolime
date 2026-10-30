@@ -38,6 +38,8 @@ internal sealed partial class Scenarios(TargetForm form)
         new("Preview_StrayKeyEndsIt_KeyReachesTheApp", () => PreviewKey(Input.A, box: "a", clip: Sentinel, delivery: "Discarded")),
         new("UseRaw_PillCopies_FocusStays", UseRawPill),
         new("PendingPaste_ClickPastesThere", PendingPaste),
+        new("UseRaw_HoldKeyTapCopies", UseRawHoldKeyTap),
+        new("Card_EscDismisses_AndReachesTheApp", EscDismissesCard),
     ];
 
     /// <summary>Hold, tap Shift once (Dictate → Prompt), let go: the prompt is rewritten and pasted.</summary>
@@ -140,6 +142,40 @@ internal sealed partial class Scenarios(TargetForm form)
         if (!Program.Wait(() => ClipText() == Spoken, 3000)) return $"clipboard is '{ClipText()}'";
         if (!form.IsForeground) return "the pill took the foreground";
         return form.On(() => form.Box1.Focused) ? null : "box1 lost keyboard focus";
+    }
+
+    /// <summary>
+    /// Bryan's overlay-14: a tap of the hold key copies the raw transcript while the pill is offered, as clicking it does,
+    /// and the user's box keeps focus.
+    /// </summary>
+    private string? UseRawHoldKeyTap()
+    {
+        if (Prepare(form.Box1) is { } fail) return fail;
+        Input.Hold(Input.RCtrl, 1500);
+        if (!Program.Wait(() => form.On(() => form.Box1.Text) == Transcript, 8000)) return "never pasted";
+        if (!Program.Wait(() => Overlay.FindPill() != 0 && Overlay.Visible(Overlay.FindPill()), 3000)) return "no Copy raw pill";
+        Input.Tap(Input.RCtrl);
+        if (!Program.Wait(() => ClipText() == Spoken, 3000)) return $"clipboard is '{ClipText()}'";
+        if (form.On(() => form.Box1.Text) != Transcript) return "the tap changed the box";
+        return form.On(() => form.Box1.Focused) ? null : "box1 lost keyboard focus";
+    }
+
+    /// <summary>
+    /// Bryan's cards-8: Esc dismisses a card at once (well inside its own timer), and the Esc still reaches the user's app,
+    /// since the card never has focus.
+    /// </summary>
+    private string? EscDismissesCard()
+    {
+        if (Prepare(form.Box1) is { } fail) return fail;
+        var errors = Count("Error");
+        File.WriteAllText(Path.Combine(AppResults, "show-card"), "DidntHear - false true");
+        if (!Program.Wait(() => Count("Error") > errors, 3000)) return "the card never showed";
+        Thread.Sleep(500);
+        if (!Overlay.Visible(Overlay.Find())) return "the card isn't visible";
+        var escs = form.EscDowns;
+        Input.Tap(Input.Esc);
+        if (!Program.Wait(() => !Overlay.Visible(Overlay.Find()), 1000)) return "Esc didn't dismiss the card";
+        return Program.Wait(() => form.EscDowns > escs, 1000) ? null : "the Esc didn't reach the app";
     }
 
     /// <summary>A Reply from a selection in the read-only box waits for a click, then pastes where the user clicked.</summary>

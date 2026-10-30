@@ -116,6 +116,9 @@ internal sealed partial class TrayIcon : INoticeSink, ISounds, IDisposable
     /// <summary>A click on "The update didn't install": setup's log.</summary>
     public event Action? UpdateLogRequested;
 
+    /// <summary>A key or settings notice's balloon was clicked: open Settings on the page that fixes it.</summary>
+    public event Action<Yolime.Core.Overlay.SettingsPage>? SettingsPageRequested;
+
     /// <summary>The version the menu offers to install (and the tooltip mentions), or null for none.</summary>
     public void SetOfferedUpdate(Yolime.Core.Updates.AppVersion? version)
     {
@@ -290,6 +293,8 @@ internal sealed partial class TrayIcon : INoticeSink, ISounds, IDisposable
             // UpdateSlow is a balloon when a full-screen app hides the notch (OverlayController.Post).
             case { Kind: NoticeKind.UpdateFailed or NoticeKind.UpdateSlow }:
                 UpdateLogRequested?.Invoke();
+                break;            case { Kind: var kind } when Notices.SettingsPage(kind) is { } page:
+                SettingsPageRequested?.Invoke(page);
                 break;
         }
     }

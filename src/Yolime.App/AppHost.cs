@@ -153,6 +153,11 @@ internal sealed class AppHost : IDisposable
         {
             if (_history.Get(id)?.RawText is { } raw) await _executor.CopyForUserAsync(raw, NoticeKind.RawCopied, CancellationToken.None);
         });
+        _overlay.OpenYolimeSettings += page => OpenSettings(SettingsWindow.PageFor(page));
+        _overlay.PreviewHover += over => hooks.PreviewHover(over);
+        _overlay.CardDismissable += on => hooks.CardDismissable = on;
+        hooks.EscPressed += _overlay.EscPressed;
+        hooks.PreviewClocked += (ms, paused) => _overlay.Post(new Yolime.Core.Overlay.PreviewClock(ms, paused));
         _overlay.OpenMicSettings += () => System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("ms-settings:privacy-microphone") { UseShellExecute = true });
 
         coordinator.RecordingChanged += recording =>
@@ -215,6 +220,7 @@ internal sealed class AppHost : IDisposable
             catch (Exception ex) { _log.Write(LogEvent.UnhandledException, LogField.Error(ex)); }
         }, null, TimeSpan.FromHours(6), TimeSpan.FromHours(6));
         _tray.SettingsRequested += () => SettingsRequested?.Invoke();
+        _tray.SettingsPageRequested += page => OpenSettings(SettingsWindow.PageFor(page));
         _tray.FinishSetupRequested += () =>
         {
             // "Setup needed" has two causes; the microphone one is fixed in Windows' privacy settings, not in Keys.
@@ -385,6 +391,7 @@ internal sealed class AppHost : IDisposable
         {
             if (old.PasteLastHotkey != now.PasteLastHotkey) _tray.RegisterPasteLast(now.PasteLastHotkey);
             if (old.HideOverlayFromCapture != now.HideOverlayFromCapture) _overlay.ApplyCaptureSetting();
+            if (old.HoldKeyVk != now.HoldKeyVk || old.DoubleTapLatch != now.DoubleTapLatch) _overlay.RefreshLabels();
             if (old.CheckForUpdates != now.CheckForUpdates) Updates.Reschedule();
             _tray.SetHistoryPaused(now.HistoryPaused);
             RefreshTray();

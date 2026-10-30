@@ -223,7 +223,8 @@ internal static class E2EMode
             var retryable = bool.Parse(parts[3]);
             // NoSpeech with a history id is retryable, without one it isn't: Retryable() decides the buttons as it would.
             var result = new Yolime.Core.Pipeline.RunResult { RunId = Guid.NewGuid(), Outcome = RunOutcome.NoSpeech, Mode = mode ?? Mode.Dictate, HistoryId = retryable ? 1 : null };
-            overlay.Post(new Yolime.Core.Overlay.RunFinished(result, new Yolime.Core.Feedback.Notice(kind, mode, Copied: bool.Parse(parts[2])), "E2E", Shell.OverlayController.NowMs));
+            // The notice as a real run's would be: Retryable says the tray can retry it (key cards then say so).
+            overlay.Post(new Yolime.Core.Overlay.RunFinished(result, new Yolime.Core.Feedback.Notice(kind, mode, Copied: bool.Parse(parts[2]), Retryable: retryable), "E2E", Shell.OverlayController.NowMs));
         }
         var probe = Path.Combine(dir, "probe-fit");
         if (File.Exists(probe))

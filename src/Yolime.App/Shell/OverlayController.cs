@@ -49,6 +49,10 @@ internal sealed partial class OverlayController : INoticeSink, IDisposable
     private readonly TextBlock _narrator = new() { Opacity = 0, Height = 0, Width = 1, IsHitTestVisible = false };
 
     private OverlayView _shown = OverlayView.Hidden;
+    private readonly StackPanel _stack;
+    private readonly Button _pillButton;
+    // The labels the buttons were built with: a hold-key or latch change rebuilds them.
+    private string _labelsBuiltFor = "";
     private readonly Windows.Foundation.TypedEventHandler<UISettings, object> _themeChanged;
     private bool _disposed;
 
@@ -71,15 +75,16 @@ internal sealed partial class OverlayController : INoticeSink, IDisposable
         _previewScroll.Content = _previewText;
         AutomationProperties.SetLiveSetting(_narrator, AutomationLiveSetting.Polite);
 
-        var stack = new StackPanel { MaxWidth = MaxWidthDip - 34, MinWidth = 220 };
-        foreach (var child in new UIElement[] { header, _detail, _level, _previewScroll, _buttons, _narrator }) stack.Children.Add(child);
-        _root.Child = stack;
-        _root.PointerEntered += (_, _) => Post(new PointerOver(true));
-        _root.PointerExited += (_, _) => Post(new PointerOver(false));
+        _stack = new StackPanel { MaxWidth = MaxWidthDip - 34, MinWidth = 220 };
+        foreach (var child in new UIElement[] { header, _detail, _level, _previewScroll, _buttons, _narrator }) _stack.Children.Add(child);
+        _root.Child = _stack;
+        _root.PointerEntered += (_, _) => Pointer(true);
+        _root.PointerExited += (_, _) => Pointer(false);
 
         // It copies the raw transcript; "Use raw" read as replacing the paste.
-        var pillButton = Button("Copy raw", () => { if (_shown.HistoryId is { } id) UseRaw?.Invoke(id); Post(new UserTyped()); });
-        var pillRoot = new Border { CornerRadius = new CornerRadius(12), Padding = new Thickness(6), Child = pillButton };
+        _pillButton = Button("Copy raw", () => { if (_shown.HistoryId is { } id) UseRaw?.Invoke(id); Post(new UserTyped()); });
+        var pillRoot = new Border { CornerRadius = new CornerRadius(12), Padding = new Thickness(6), Child = _pillButton };
+        RefreshLabels();
 
         _notch = new OverlayWindow("yolime-overlay", _root, clickThrough: true);
         _pill = new OverlayWindow("yolime-overlay-pill", pillRoot, clickThrough: false);
@@ -113,6 +118,15 @@ internal sealed partial class OverlayController : INoticeSink, IDisposable
     public event Action<long>? UseRaw;
     public event Action? OpenMicSettings;
     public event Action? OpenUpdateLog;
+
+    /// <summary>Open yolime Settings on this page (a key or settings card's button).</summary>
+    public event Action<SettingsPage>? OpenYolimeSettings;
+
+    /// <summary>The pointer entered or left a preview card: the hook pauses its deadline while it's there.</summary>
+    public event Action<bool>? PreviewHover;
+
+    /// <summary>Whether an Esc should dismiss what's showing (an Error card), for the hook's gate.</summary>
+    public event Action<bool>? CardDismissable;
     public event Action<Yolime.Core.Output.PreviewChoice>? PreviewChosen;
 
     /// <summary>The state and buttons after every change (E2E records these; never the text).</summary>
@@ -162,7 +176,10 @@ internal sealed partial class OverlayController : INoticeSink, IDisposable
         var room = _root.ActualHeight - _root.Padding.Bottom - _root.BorderThickness.Bottom;
         return string.Join(' ', lowest.ToString("0.00", c), room.ToString("0.00", c), rightmost.ToString("0.00", c),
             stack.ActualWidth.ToString("0.00", c), (_root.XamlRoot?.RasterizationScale ?? 0).ToString("0.00", c), _uiSettings.TextScaleFactor.ToString("0.00", c),
-            _root.ActualHeight.ToString("0.0", c) + ";" + string.Join(',', each));
+            _root.ActualHeight.ToString("0.0", c) + ";" + string.Join(',', each),
+            // Whether the title or the detail is cut short ("T" each), which the heights alone can't show: a trimmed line
+            // ends inside the card.
+            (_title.IsTextTrimmed ? "T" : "-") + (_detail.Visibility == Visibility.Visible && _detail.IsTextTrimmed ? "T" : "-"));
     }
 
     /// <summary>
@@ -221,13 +238,19 @@ internal sealed partial class OverlayController : INoticeSink, IDisposable
             _level.Value = Math.Min(1, Math.Sqrt(view.Level) * 4);
             _previewText.Text = view.Preview ?? "";
             _previewScroll.Visibility = view.Preview is null ? Visibility.Collapsed : Visibility.Visible;
-            if (!view.Buttons.SequenceEqual(previous.Buttons) || previous.State != view.State) BuildButtons(view);
+            if (!view.Buttons.SequenceEqual(previous.Buttons) || previous.State != view.State || LabelsKey() != _labelsBuiltFor) BuildButtons(view);
+            // A card can wrap to two title lines and three detail lines; past that it's cut, which the fit probe reports.
+            (_title.MaxLines, _title.TextTrimming) = view.State == OverlayState.Error ? (2, TextTrimming.CharacterEllipsis) : (0, TextTrimming.None);
+            _detail.MaxLines = view.State == OverlayState.Error ? 3 : 2;
+            // Listening and Working keep the full width, so a context line arriving mid-recording doesn't resize the card.
+            _stack.MinWidth = view.FixedWidth ? MaxWidthDip - 34 : 220;
             _notch.SetClickThrough(!view.Clickable);
             // Re-measure whenever the shape may have changed; position is chosen fresh on each show.
             _notch.Show(_settings().OverlayPosition == OverlayPosition.BottomCentre, MaxWidthDip);
         }
 
-        if (view.OfferUseRaw) _pill.Show(false, 200, _notch.Visible ? _notch.Bounds : PillAnchor());
+        if (view.OfferUseRaw) _pill.Show(false, 280, _notch.Visible ? _notch.Bounds : PillAnchor());
+        if ((view.State == OverlayState.Error) != (previous.State == OverlayState.Error)) CardDismissable?.Invoke(view.State == OverlayState.Error);
         else _pill.Hide();
 
         if (view.Narration is { } say && say != previous.Narration) Announce(say, view.NarrateUrgently);
@@ -245,23 +268,57 @@ internal sealed partial class OverlayController : INoticeSink, IDisposable
 
     private void BuildButtons(OverlayView view)
     {
+        var (key, tap) = HoldKey();
+        _labelsBuiltFor = LabelsKey();
         _buttons.Children.Clear();
         foreach (var b in view.Buttons)
         {
+            var label = ButtonLabels.For(b, key, tap);
             _buttons.Children.Add(b switch
             {
-                // Named with its key, as the preview's buttons are: a tap of the hold key retries too.
-                OverlayButton.Retry => Button($"Retry (tap {Yolime.Core.Hotkeys.HoldKeyRules.Name(_settings().HoldKeyVk)})", () => { if (_shown.HistoryId is { } id) Retry?.Invoke(id); Post(new Dismissed()); }),
-                OverlayButton.OpenSettings => Button("Open privacy settings", () => { OpenMicSettings?.Invoke(); Post(new Dismissed()); }),
-                OverlayButton.OpenLog => Button("Open the log", () => { OpenUpdateLog?.Invoke(); Post(new Dismissed()); }),
-                OverlayButton.Insert => Button("Insert (Enter)", () => PreviewChosen?.Invoke(Yolime.Core.Output.PreviewChoice.Insert)),
-                OverlayButton.Copy => Button("Copy (C)", () => PreviewChosen?.Invoke(Yolime.Core.Output.PreviewChoice.Copy)),
-                OverlayButton.Discard => Button("Discard (Esc)", () => PreviewChosen?.Invoke(Yolime.Core.Output.PreviewChoice.Discard)),
-                _ => Button("Dismiss", () => Post(new Dismissed())),
+                OverlayButton.Retry => Button(label, () => { if (_shown.HistoryId is { } id) Retry?.Invoke(id); Post(new Dismissed()); }),
+                OverlayButton.OpenSettings => Button(label, () => { OpenMicSettings?.Invoke(); Post(new Dismissed()); }),
+                OverlayButton.OpenYolimeSettings => Button(label, () => { if (_shown.Page is { } page) OpenYolimeSettings?.Invoke(page); Post(new Dismissed()); }),
+                OverlayButton.OpenLog => Button(label, () => { OpenUpdateLog?.Invoke(); Post(new Dismissed()); }),
+                OverlayButton.Insert => Button(label, () => PreviewChosen?.Invoke(Yolime.Core.Output.PreviewChoice.Insert)),
+                OverlayButton.Copy => Button(label, () => PreviewChosen?.Invoke(Yolime.Core.Output.PreviewChoice.Copy)),
+                OverlayButton.Discard => Button(label, () => PreviewChosen?.Invoke(Yolime.Core.Output.PreviewChoice.Discard)),
+                _ => Button(label, () => Post(new Dismissed())),
             });
         }
         _buttons.Visibility = view.Buttons.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
     }
+
+    /// <summary>The hold key's name, and whether a bare tap of it reaches the card (not with double-tap-to-latch on).</summary>
+    private (string Name, bool TapReaches) HoldKey()
+    {
+        var s = _settings();
+        return (Yolime.Core.Hotkeys.HoldKeyRules.Name(s.HoldKeyVk), !s.DoubleTapLatch);
+    }
+
+    private string LabelsKey() => HoldKey() is var (name, tap) ? name + "|" + tap : "";
+
+    /// <summary>
+    /// After a hold-key or latch change in Settings: the pill, "Tap {key} to stop" and any buttons showing pick it up
+    /// now, even if the view doesn't change. UI thread.
+    /// </summary>
+    public void RefreshLabels()
+    {
+        var (key, tap) = HoldKey();
+        _model.HoldKeyName = key;
+        _pillButton.Content = ButtonLabels.Pill(key, tap);
+        if (_shown.State != OverlayState.Hidden && LabelsKey() != _labelsBuiltFor) BuildButtons(_shown);
+    }
+
+    /// <summary>Over a card: an Error card's clock pauses (the model), a preview's deadline pauses (the hook's).</summary>
+    private void Pointer(bool over)
+    {
+        Post(new PointerOver(over));
+        if (_shown.State == OverlayState.Preview) PreviewHover?.Invoke(over);
+    }
+
+    /// <summary>Esc reached the hook while a card showed: dismiss it (the Esc also went on to the user's app).</summary>
+    public void EscPressed() => _ui.TryEnqueue(() => Apply(new Yolime.Core.Overlay.EscPressed()));
 
     /// <summary>Never focusable: a click must not move keyboard focus out of the user's app.</summary>
     private static Button Button(string label, Action onClick)
@@ -271,13 +328,20 @@ internal sealed partial class OverlayController : INoticeSink, IDisposable
         return button;
     }
 
-    /// <summary>A bare hold-key tap: retries the run on a retryable error card (spec: "a tap of the hotkey").</summary>
+    /// <summary>A bare hold-key tap: whatever the model says it does to what's showing (retry the card, or copy raw).</summary>
     public void HotkeyTapped() => _ui.TryEnqueue(() =>
     {
-        if (_shown.State == OverlayState.Error && _shown.Buttons.Contains(OverlayButton.Retry) && _shown.HistoryId is { } id)
+        var tap = _model.Tap();
+        switch (tap.Kind)
         {
-            Retry?.Invoke(id);
-            Apply(new Dismissed());
+            case TapKind.Retry when tap.HistoryId is { } id:
+                Retry?.Invoke(id);
+                Apply(new Dismissed());
+                break;
+            case TapKind.CopyRaw when tap.HistoryId is { } id:
+                UseRaw?.Invoke(id);
+                Apply(new UserTyped());
+                break;
         }
     });
 

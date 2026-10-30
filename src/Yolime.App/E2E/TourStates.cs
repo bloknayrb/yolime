@@ -45,7 +45,7 @@ internal static class TourStates
         Listen("listen-prompt", Mode.Prompt, "Outlook", shows: v => v.Detail is null && v.Title == "Prompt · Outlook"),
         Listen("listen-reply", Mode.Reply, "Slack", shows: v => v.Detail is null && v.Title == "Reply · Slack"),
         Listen("listen-raw", Mode.Raw, "Notepad++", shows: v => v.Detail is null && v.Title == "Raw · Notepad++"),
-        Listen("listen-latched", Mode.Dictate, "Outlook", latched: true, shows: v => v.Detail == "Tap to stop"),
+        Listen("listen-latched", Mode.Dictate, "Outlook", latched: true, shows: v => v.Detail == "Tap Right Ctrl to stop"),
         // A real mic not ready by 2 s posts AudioFlowing(false), so "starting" is only seen between 300 ms and 2 s.
         new("listen-mic-starting", OverlayState.Listening, None, false, t => [Rec(Mode.Dictate, "Outlook", t, micReady: false), new Tick(t + 800)],
             v => v.Detail == "Mic starting…"),
@@ -115,11 +115,15 @@ internal static class TourStates
         if (parts.Length != 4 || !Enum.TryParse<NoticeKind>(parts[0], out var kind)) return null;
         Mode? mode = parts[1] == "-" ? null : Enum.Parse<Mode>(parts[1]);
         var copied = bool.Parse(parts[2]);
-        var notice = new Notice(kind, mode, Copied: copied);
+        var retryableSpec = bool.Parse(parts[3]);
+        var notice = new Notice(kind, mode, Copied: copied, Retryable: retryableSpec);
         if (OutsideARun.Contains(kind))
             return new(name, OverlayState.Error, [OverlayButton.Dismiss], false, t => [new NoticeOnly(notice, t)]);
         var retryable = bool.Parse(parts[3]);
-        OverlayButton[] buttons = [.. retryable ? [OverlayButton.Retry] : None, .. kind == NoticeKind.MicDenied ? [OverlayButton.OpenSettings] : None, OverlayButton.Dismiss];
+        // Key and settings problems open Settings instead of Retry (the model's rule, proved in Core).
+        var settings = Notices.SettingsPage(kind) is not null;
+        OverlayButton[] buttons = [.. retryable && !settings ? [OverlayButton.Retry] : None, .. kind == NoticeKind.MicDenied ? [OverlayButton.OpenSettings] : None,
+            .. settings ? [OverlayButton.OpenYolimeSettings] : None, OverlayButton.Dismiss];
         // NoSpeech with a history id is retryable, without one it isn't: the model's Retryable() decides, as show-card does.
         return new(name, OverlayState.Error, buttons, false, t =>
             [new RunFinished(new RunResult { RunId = Guid.NewGuid(), Outcome = RunOutcome.NoSpeech, Mode = mode ?? Mode.Dictate, HistoryId = retryable ? 1 : null }, notice, "Outlook", t)]);
@@ -160,7 +164,7 @@ internal static class TourStates
             var timing = new RunTiming { RunId = run, Mode = mode, StartedUtc = DateTimeOffset.UtcNow, Outcome = RunOutcome.Completed, OutputWords = 14, OutputDoneMs = 1840 };
             var result = new RunResult { RunId = run, Outcome = RunOutcome.Completed, Mode = mode, Delivery = delivery, Rewritten = rewritten, HistoryId = 7, Timing = timing };
             return [Rec(mode, app, t), new Level(Voiced, t + 100), new RecordingEnded(t + 4000), new RunFinished(result, null, app, t + 5800)];
-        }, v => delivery == DeliveryKind.Copied ? v.Title == "Copied · press Ctrl+V" : v.Title == $"→ {Short(app)} · 14 words · 1.8 s");
+        }, v => delivery == DeliveryKind.Copied ? v.Title == "Copied: press\u00a0Ctrl+V" : v.Title == $"→ {Short(app)} · 14 words · 1.8 s");
 
     private static Entry Preview(string name, string text) =>
         new(name, OverlayState.Preview, PreviewButtons, false, t => [Rec(Mode.Raw, "Outlook", t), new Level(Voiced, t + 100), new PreviewShown(text)],

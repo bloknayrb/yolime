@@ -40,6 +40,8 @@ internal sealed partial class Scenarios
             "ElevatedTarget", "MicFallback", "SettingsNotSaved",
         };
         foreach (var k in kinds) yield return $"{k} - false {retryable.Contains(k).ToString().ToLowerInvariant()}";
+        // Key and settings problems on a run that was kept: the card adds where to retry from (its longest variants).
+        foreach (var k in new[] { "NoKey", "KeyRejected", "EndpointInvalid" }) yield return $"{k} - false true";
         // A rewrite failure's text depends on the mode and on where the transcript went, and Prompt/Reply can Retry.
         foreach (var k in new[] { "RewriteNoKey", "RewriteKeyRejected", "RewriteOutOfCredit", "RewriteRefused", "RewriteTooLong", "RewriteTimedOut", "RewriteUnavailable", "RewriteConfig", "RewriteEmpty" })
         {
@@ -62,7 +64,7 @@ internal sealed partial class Scenarios
             File.WriteAllText(Path.Combine(results, "show-card"), card);
             if (!Program.Wait(() => CountIn(results, "Error") > errors, 3000)) { failures.Add($"{card}: never shown"); continue; }
             shown++;
-            var buttons = 1 + (card.EndsWith(" true", StringComparison.Ordinal) ? 1 : 0) + (card.StartsWith("MicDenied ", StringComparison.Ordinal) ? 1 : 0);
+            var buttons = ExpectedButtons(card);
             if (CheckCard(results, buttons, expectTextScale) is { } why) failures.Add($"{card}: {why}");
         }
         if (failures.Count == 0) return null;
@@ -122,6 +124,7 @@ internal sealed partial class Scenarios
         if (expectTextScale is { } t && Math.Abs(textScale - t) > 0.01) return $"text scale is {textScale:0.00}, not {t:0.00}";
         if (lowest > room + 0.5) problems.Add($"layout: content ends at {lowest:0.0} DIP, below the card's {room:0.0}");
         if (buttonsRight > width + 0.5) problems.Add($"layout: buttons reach {buttonsRight:0.0} DIP, past the card's {width:0.0}");
+        if (_probeTrimmed.Contains('T')) problems.Add($"layout: text cut short ({(_probeTrimmed[0] == 'T' ? "title" : "detail")})");
 
         // 2. UIA: every button there, on screen, the same height, and above the card's bottom padding.
         var (l, top, r, b) = Overlay.WindowRect(hwnd);
@@ -183,8 +186,25 @@ internal sealed partial class Scenarios
 
     private static void RetryIo(Action io) => RetryIo(() => { io(); return 0; });
 
+    /// <summary>
+    /// Key and settings problems: their card offers Open yolime Settings instead of Retry (the model's rule,
+    /// <c>Notices.SettingsPage</c>; proved in Core, mirrored here so the UIA count checks the controller drew it).
+    /// </summary>
+    public static readonly HashSet<string> SettingsKinds = ["NoKey", "KeyRejected", "EndpointInvalid", "RewriteNoKey", "RewriteKeyRejected", "RewriteConfig"];
+
+    /// <summary>The buttons a show-card spec ("Kind Mode Copied Retryable") draws: Retry, the kind's own button, Dismiss.</summary>
+    public static int ExpectedButtons(string card)
+    {
+        var parts = card.Split(' ');
+        var settings = SettingsKinds.Contains(parts[0]);
+        return 1 + (parts[3] == "true" && !settings ? 1 : 0) + (parts[0] == "MicDenied" ? 1 : 0) + (settings ? 1 : 0);
+    }
+
     /// <summary>The probe's per-child layout ("rootHeight;index:top+height,..."), for failure messages.</summary>
     private static string _probeDetail = "";
+
+    /// <summary>"T" where the title, then the detail, is cut short; "-" where it isn't.</summary>
+    private static string _probeTrimmed = "--";
 
     private static (double Lowest, double Room, double ButtonsRight, double Width, double Scale, double TextScale)? Probe(string results)
     {
@@ -194,6 +214,7 @@ internal sealed partial class Scenarios
         if (!Program.Wait(() => File.Exists(done), 3000)) return null;
         var parts = RetryIo(() => File.ReadAllText(done)).Trim().Split(' ');
         _probeDetail = parts.Length > 6 ? parts[6] : "";
+        _probeTrimmed = parts.Length > 7 ? parts[7] : "--";
         var v = parts.Take(6).Select(s => double.Parse(s, CultureInfo.InvariantCulture)).ToArray();
         return (v[0], v[1], v[2], v[3], v[4], v[5]);
     }

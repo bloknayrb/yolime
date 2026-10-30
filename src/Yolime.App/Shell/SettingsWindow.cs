@@ -30,6 +30,14 @@ internal sealed class SettingsWindow : Window
 {
     public const string General = "general", KeysPage = "keys", Apps = "apps", OverlayHistory = "overlay", Advanced = "advanced";
 
+    /// <summary>The page a notice points at (Core names it; the window names its pages).</summary>
+    public static string PageFor(Yolime.Core.Overlay.SettingsPage page) => page switch
+    {
+        Yolime.Core.Overlay.SettingsPage.Keys => KeysPage,
+        Yolime.Core.Overlay.SettingsPage.Advanced => Advanced,
+        _ => General,
+    };
+
     private readonly AppHost _host;
     private readonly NavigationView _nav = new();
     private readonly StackPanel _page = new() { Spacing = 14, Padding = new Thickness(28, 20, 28, 28), MaxWidth = 760, HorizontalAlignment = HorizontalAlignment.Left };
