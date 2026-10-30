@@ -316,7 +316,8 @@ internal static class E2EMode
         // Claimed by a rename, which only one taker can win: the 100 ms hook timer's callbacks can overlap, and two
         // reading and deleting the same file raced (UnauthorizedAccessException on the second delete). A lost race, or
         // the harness still moving its request in, is "not yet": the next tick looks again.
-        var taken = path + ".taken";
+        // A name of its own per claim: a shared one could be renamed over by the next tick's claim of a newer request.
+        var taken = path + "." + Guid.NewGuid().ToString("N") + ".taken";
         try { File.Move(path, taken, overwrite: true); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return null; }
         var text = File.ReadAllText(taken).Trim();
