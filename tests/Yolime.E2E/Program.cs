@@ -156,8 +156,8 @@ internal static class Program
 
     /// <summary>
     /// Welcome's keyboard paths, from a first run: typing a (fake) key and pressing Enter runs Save and test (the status
-    /// line changes from "Not set yet."); on the hold-key step, an arrow key moves to the next key and focus stays on the
-    /// radio buttons (the step used to rebuild itself and drop focus).
+    /// line changes from "Not set yet."); on the hold-key step, choosing another key from the keyboard (arrow, Space) keeps
+    /// focus on the keys and updates the heading (choosing used to rebuild the step and drop focus).
     /// </summary>
     private static string? WizardKeyPaths(out Process? app)
     {
@@ -194,7 +194,9 @@ internal static class Program
         if (radios.Length < 2) return $"the hold-key step has {radios.Length} keys";
         radios[0].Focus();
         Thread.Sleep(300);
-        Input.Tap(0x27); // Right arrow
+        Input.Tap(0x27); // Right arrow moves focus to the next key...
+        Thread.Sleep(300);
+        Input.Tap(0x20); // ...and Space chooses it, which used to rebuild the step and drop focus
         Thread.Sleep(800);
         var focused = automation.FocusedElement();
         if (focused?.ControlType != FlaUI.Core.Definitions.ControlType.RadioButton) return $"focus left the keys (now on a {focused?.ControlType})";
