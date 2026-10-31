@@ -32,7 +32,7 @@ Wait-SandboxGone
 
 # The app's E2E build is copied from build output: Directory.Build.props forbids publishing an E2E build.
 # The update scenarios install a 0.1.0 and update it to 0.1.1, whatever the csproj's version is by now.
-$pin = if ($Updates) { @('-p:Version=0.1.0') } else { @() }
+$pin = @(if ($Updates) { '-p:Version=0.1.0' })
 dotnet build (Join-Path $repo 'src\Yolime.App') -p:YolimeE2E=true @pin | Out-Host
 if ($LASTEXITCODE -ne 0) { throw 'app build failed' }
 dotnet publish (Join-Path $repo 'tests\Yolime.E2E') -c Release -o (Join-Path $stage 'harness') | Out-Host
