@@ -7,7 +7,7 @@
     <AssemblyName>Yolime.App</AssemblyName>
     <!-- The one version source: tools/build-setup.ps1 reads it back from the published exe for the setup's name and
          its Apps & Features entry. Bump it when a build is worth naming. -->
-    <Version>0.1.0</Version>
+    <Version>0.1.1</Version>
     <UseWinUI>true</UseWinUI>
     <WindowsPackageType>None</WindowsPackageType>
     <!-- Still unpackaged: this only makes publish carry Yolime.App.pri (App.xaml's resources), which it otherwise
