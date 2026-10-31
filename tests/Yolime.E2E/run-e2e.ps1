@@ -31,7 +31,9 @@ function Wait-SandboxGone {
 Wait-SandboxGone
 
 # The app's E2E build is copied from build output: Directory.Build.props forbids publishing an E2E build.
-dotnet build (Join-Path $repo 'src\Yolime.App') -p:YolimeE2E=true | Out-Host
+# The update scenarios install a 0.1.0 and update it to 0.1.1, whatever the csproj's version is by now.
+$pin = @(if ($Updates) { '-p:Version=0.1.0' })
+dotnet build (Join-Path $repo 'src\Yolime.App') -p:YolimeE2E=true @pin | Out-Host
 if ($LASTEXITCODE -ne 0) { throw 'app build failed' }
 dotnet publish (Join-Path $repo 'tests\Yolime.E2E') -c Release -o (Join-Path $stage 'harness') | Out-Host
 if ($LASTEXITCODE -ne 0) { throw 'harness publish failed' }
@@ -39,7 +41,7 @@ if ($LASTEXITCODE -ne 0) { throw 'harness publish failed' }
 $appOut = Join-Path $repo 'src\Yolime.App\bin\e2e\Debug\net10.0-windows10.0.19041.0\win-x64'
 Remove-Item -Recurse -Force (Join-Path $stage 'app'), (Join-Path $stage 'fixtures') -ErrorAction SilentlyContinue
 if ($Updates) {
-    # Two E2E payloads from the same output folder: 0.1.0 (the csproj's version) to install first, then 0.1.1 to update
+    # Two E2E payloads from the same output folder: 0.1.0 (pinned above) to install first, then 0.1.1 to update
     # to, and that one without Yolime.App.pri (setup refuses it before stopping anything). Each 0.1.1 is wrapped in the
     # SandboxE2E setup, which may run elevated and install an E2E payload; neither is ever shipped.
     Remove-Item -Recurse -Force (Join-Path $stage 'pay-0.1.0'), (Join-Path $stage 'setups'), (Join-Path $stage 'tools') -ErrorAction SilentlyContinue
