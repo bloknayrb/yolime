@@ -44,6 +44,8 @@ AppPublisher=Bryan Kolb
 VersionInfoVersion={#FileVersion}
 UninstallDisplayName=yolime
 UninstallDisplayIcon={localappdata}\Programs\Yolime\Yolime.App.exe
+; The app icon on setup.exe and its wizard (tools/make-icons.py).
+SetupIconFile=..\src\Yolime.App\Assets\yolime.ico
 ; Fixed, and checked again in PrepareToInstall: /DIR= must not move it.
 DefaultDirName={localappdata}\Programs\Yolime Setup
 DisableDirPage=yes

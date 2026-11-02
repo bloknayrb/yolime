@@ -20,5 +20,9 @@ internal static class WindowSizing
         var height = Math.Min((int)(heightDip * scale), area.Height);
         window.AppWindow.MoveAndResize(new Windows.Graphics.RectInt32(
             area.X + (area.Width - width) / 2, area.Y + (area.Height - height) / 2, width, height));
+        // Every yolime window comes through here: give each the app icon (title bar, taskbar button, Alt+Tab). An
+        // unpackaged window doesn't take the exe's icon on its own.
+        var icon = Path.Combine(AppContext.BaseDirectory, "Assets", "yolime.ico");
+        if (File.Exists(icon)) window.AppWindow.SetIcon(icon);
     }
 }

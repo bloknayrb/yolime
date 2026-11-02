@@ -17,6 +17,14 @@ function Test-YolimePublish([string]$Path) {
     foreach ($name in 'Yolime.App.exe', 'Yolime.App.dll', 'Yolime.App.pri', 'Yolime.Core.dll') {
         if (-not (Test-Path -LiteralPath (Join-Path $Path $name) -PathType Leaf)) { return "missing $name" }
     }
+    # The window and tray icons load from Assets at run time; without them the tray falls back to plain dots.
+    $icons = @('yolime.ico')
+    foreach ($state in 'idle', 'recording', 'paused', 'setup', 'elevated') {
+        foreach ($variant in 'light', 'dark') { $icons += "tray-$state-$variant.ico" }
+    }
+    foreach ($name in $icons) {
+        if (-not (Test-Path -LiteralPath (Join-Path (Join-Path $Path 'Assets') $name) -PathType Leaf)) { return "missing Assets\$name" }
+    }
     if ($AllowE2EPayload) { return $null }
     $bytes = [IO.File]::ReadAllBytes((Join-Path $Path 'Yolime.App.dll'))
     # Latin-1 maps every byte to one char, so IndexOf on the string is a byte search.
