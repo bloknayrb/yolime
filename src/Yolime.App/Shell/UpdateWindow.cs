@@ -25,8 +25,8 @@ internal sealed class UpdateWindow : Window
     {
         _updater = updater;
         Title = "yolime update";
-        SystemBackdrop = new MicaBackdrop();
-        _heading.Style = (Style)Application.Current.Resources["SubtitleTextBlockStyle"];
+        SystemBackdrop = new TintedMicaBackdrop();
+        _heading.Style = (Style)Application.Current.Resources["yolime.PageHeading"];
         // Narrator reads progress and failures as they change.
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetLiveSetting(_status, Microsoft.UI.Xaml.Automation.Peers.AutomationLiveSetting.Polite);
 
@@ -42,7 +42,7 @@ internal sealed class UpdateWindow : Window
         buttons.Children.Add(_install);
         buttons.Children.Add(_whatsNew);
         buttons.Children.Add(_notNow);
-        var root = new StackPanel { Spacing = 14, Padding = new Thickness(24, 20, 24, 20) };
+        var root = new StackPanel { Spacing = 18, Padding = new Thickness(28, 24, 28, 24) };
         root.Children.Add(_heading);
         root.Children.Add(_status);
         root.Children.Add(_progress);

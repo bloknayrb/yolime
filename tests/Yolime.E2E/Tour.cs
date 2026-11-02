@@ -316,6 +316,17 @@ internal static partial class Tour
             for (var step = 1; step <= 5; step++)
             {
                 CaptureWindow(form, window!, "windows", $"welcome-{step}", theme);
+                if (step == 1)
+                {
+                    AccentCheck(window!, theme, "accent-next");
+                    // A live theme switch must recolour accent controls too, then come back.
+                    var other = theme == "light" ? "dark" : "light";
+                    SetTheme(other == "light" ? 1 : 0);
+                    Thread.Sleep(1500);
+                    AccentCheck(window!, other, $"accent-next-after-switch-from-{theme}");
+                    SetTheme(theme == "light" ? 1 : 0);
+                    Thread.Sleep(1500);
+                }
                 if (step == 5) break;
                 var next = window!.FindFirstDescendant(cf => cf.ByName("Next").And(cf.ByControlType(FlaUI.Core.Definitions.ControlType.Button)));
                 if (next is null) { Fail($"windows/welcome-{step + 1}-{theme}", "no Next button"); return; }
@@ -324,6 +335,23 @@ internal static partial class Tour
             }
         }
         finally { CloseQuietly(window!); }
+    }
+
+    /// <summary>
+    /// Welcome's Next is an AccentButtonStyle button: its fill must be yolime's accent for the theme (deep green in
+    /// light, light lime in dark), not Windows' own accent. Sampled just inside its left edge, clear of the label.
+    /// </summary>
+    private static void AccentCheck(AutomationElement window, string theme, string name)
+    {
+        var label = $"windows/{name}-{theme}";
+        var next = window.FindFirstDescendant(cf => cf.ByName("Next").And(cf.ByControlType(FlaUI.Core.Definitions.ControlType.Button)));
+        if (next is null) { Fail(label, "no Next button"); return; }
+        var b = next.BoundingRectangle;
+        using var image = Overlay.Grab(b.Left + 4, b.Top + b.Height / 2, 1, 1);
+        var c = image.GetPixel(0, 0);
+        var (r, g, bl) = theme == "light" ? (0x36, 0x60, 0x0C) : (0xC2, 0xE3, 0x8A);
+        var ok = Math.Abs(c.R - r) <= 10 && Math.Abs(c.G - g) <= 10 && Math.Abs(c.B - bl) <= 10;
+        Report.Add(new { name = label, pass = ok, failure = ok ? null : $"Next is {c.R},{c.G},{c.B}, expected {r},{g},{bl}" });
     }
 
     private static void CaptureWindow(TargetForm form, AutomationElement window, string area, string name, string theme)

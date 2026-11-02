@@ -40,8 +40,8 @@ internal sealed class SettingsWindow : Window
 
     private readonly AppHost _host;
     private readonly NavigationView _nav = new();
-    private readonly StackPanel _page = new() { Spacing = 14, Padding = new Thickness(28, 20, 28, 28), MaxWidth = 760, HorizontalAlignment = HorizontalAlignment.Left };
-    private readonly InfoBar _status = new() { IsClosable = true, Margin = new Thickness(28, 12, 28, 0) };
+    private readonly StackPanel _page = new() { Spacing = 18, Padding = new Thickness(36, 24, 36, 36), MaxWidth = 760, HorizontalAlignment = HorizontalAlignment.Left };
+    private readonly InfoBar _status = new() { IsClosable = true, Margin = new Thickness(36, 12, 36, 0) };
     private readonly KeyTester _tester;
     private readonly PromptLibrary _prompts;
     private string _current = General;
@@ -61,7 +61,7 @@ internal sealed class SettingsWindow : Window
         _tester = new KeyTester(HttpClients.Shared, host.Keys, () => host.Settings.Current);
         _prompts = new PromptLibrary(host.Paths);
         Title = "yolime settings";
-        SystemBackdrop = new MicaBackdrop();
+        SystemBackdrop = new TintedMicaBackdrop();
 
         foreach (var (tag, label, glyph) in new[]
         {
@@ -271,7 +271,7 @@ internal sealed class SettingsWindow : Window
             StopMeter();
             Save(s => s with { MicDeviceId = id });
         };
-        var level = new ProgressBar { Width = 220, Maximum = 1, Value = 0, VerticalAlignment = VerticalAlignment.Center };
+        var level = new LevelMeter { Width = 220, VerticalAlignment = VerticalAlignment.Center };
         var test = new ToggleButton { Content = "Test" };
         test.Checked += (_, _) => StartMeter(level, test);
         test.Unchecked += (_, _) => StopMeter();
@@ -375,7 +375,7 @@ internal sealed class SettingsWindow : Window
         _updateRow = null;
     }
 
-    private void StartMeter(ProgressBar level, ToggleButton button)
+    private void StartMeter(LevelMeter level, ToggleButton button)
     {
         StopMeter();
         var cts = new CancellationTokenSource();
@@ -731,13 +731,12 @@ internal sealed class SettingsWindow : Window
     }
 
     private void Heading(string text) =>
-        _page.Children.Add(new TextBlock { Text = text, Style = (Style)Application.Current.Resources["SubtitleTextBlockStyle"], Margin = new Thickness(0, 0, 0, 4) });
+        _page.Children.Add(new TextBlock { Text = text, Style = (Style)Application.Current.Resources["yolime.PageHeading"], Margin = new Thickness(0, 0, 0, 4) });
 
     private static TextBlock Help(string text) => new()
     {
         Text = text,
-        TextWrapping = TextWrapping.Wrap,
-        Opacity = 0.75,
+        Style = (Style)Application.Current.Resources["yolime.Muted"],
         MaxWidth = 640,
         HorizontalAlignment = HorizontalAlignment.Left,
     };
