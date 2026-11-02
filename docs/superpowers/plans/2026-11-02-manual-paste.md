@@ -35,8 +35,10 @@ several rare side effects into ones that happen on every run.
 6. **One settings snapshot per run** in `RewriteAndDeliverAsync`.
 7. **Copy.** The paste-last help no longer says "again", and neither does `PasteLastUnavailable`. Always preview's
    help says a preview is how to paste a single run in manual mode.
-8. **Deferred:** the "Ctrl+V" hint is wrong in Warp, Alacritty, mintty and PuTTY. The bug predates this change, but
-   manual mode makes it frequent. Fixing it means carrying the paste chord through `RunResult`; it's a follow-up.
+8. **Follow-up, done:** the "Ctrl+V" hint was wrong in Warp, Alacritty, mintty and PuTTY. The bug predates this
+   change, but manual mode made it frequent. The follow-up PR carries the paste chord (an enum) from the planner
+   through `OutputExecutor` to `RunResult` and `Notice`, so the Done card, its narration and the notices name the key
+   of the window in front ("Ctrl+Shift+V", "Shift+Insert"), and say Ctrl+V when that is unknown.
 
 ## Tests
 - Core:

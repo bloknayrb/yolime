@@ -44,6 +44,12 @@ public sealed class OutputExecutor(
     /// <summary>The paste's timing breakdown for a run, taken once (the pipeline puts it in the run's timing line).</summary>
     public OutputBreakdown? TakeBreakdown(Guid runId) => _breakdowns.TryRemove(runId, out var b) ? b : null;
 
+    // The paste key named by a copy's hint, per run. An enum, so no content: it never reaches a log either.
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, PasteChord> _chords = new();
+
+    /// <inheritdoc/>
+    public PasteChord TakeChord(Guid runId) => _chords.TryRemove(runId, out var c) ? c : PasteChord.CtrlV;
+
     /// <summary>Times the steps of one paste. Not thread-safe: one delivery owns it.</summary>
     private sealed class Laps(TimeProvider time)
     {
@@ -105,7 +111,7 @@ public sealed class OutputExecutor(
                     try
                     {
                         await FlushCoreAsync();
-                        return await CopyAsync(first.Text, OutputNotice.CopiedClipboardOnly, ct);
+                        return await CopyAsync(first.Text, OutputNotice.CopiedClipboardOnly, first.Chord, item.RunId, ct);
                     }
                     finally
                     {
@@ -148,7 +154,7 @@ public sealed class OutputExecutor(
             await FlushCoreAsync();
             laps.Flush = laps.Lap();
             if (decision.Action == OutputAction.ClipboardOnly || modifiersStuck)
-                return await CopyAsync(decision.Text, item.QuietCopy ? OutputNotice.None : decision.Action == OutputAction.ClipboardOnly ? decision.Notice : OutputNotice.CopiedTargetChanged, ct, laps, item.KeepOutOfClipboardHistory);
+                return await CopyAsync(decision.Text, item.QuietCopy ? OutputNotice.None : decision.Action == OutputAction.ClipboardOnly ? decision.Notice : OutputNotice.CopiedTargetChanged, decision.Chord, item.RunId, ct, laps, item.KeepOutOfClipboardHistory);
 
             return await SwapAndPasteAsync(decision, now.Hwnd, item.QuietCopy, TerminalDetector.IsRemote(now), ct, laps);
         }
@@ -184,7 +190,7 @@ public sealed class OutputExecutor(
         catch (OperationCanceledException) when (ct.IsCancellationRequested && !_closed)
         {
             // A hold-key tap while waiting means "never mind where": the reply is copied, as on a timeout.
-            return await CopyNowAsync(first.Text, item.QuietCopy ? OutputNotice.None : OutputNotice.CopiedNotEditable);
+            return await CopyNowAsync(first.Text, item.QuietCopy ? OutputNotice.None : OutputNotice.CopiedNotEditable, first.Chord, item.RunId);
         }
         finally
         {
@@ -215,7 +221,7 @@ public sealed class OutputExecutor(
             }
             await FlushCoreAsync();
             if (decision.Action == OutputAction.ClipboardOnly || modifiersStuck)
-                return await CopyAsync(decision.Text, item.QuietCopy ? OutputNotice.None : modifiersStuck ? OutputNotice.CopiedTargetChanged : decision.Notice, ct, excludeFromHistory: item.KeepOutOfClipboardHistory);
+                return await CopyAsync(decision.Text, item.QuietCopy ? OutputNotice.None : modifiersStuck ? OutputNotice.CopiedTargetChanged : decision.Notice, decision.Chord, item.RunId, ct, excludeFromHistory: item.KeepOutOfClipboardHistory);
             return await SwapAndPasteAsync(decision, now.Hwnd, item.QuietCopy, TerminalDetector.IsRemote(now), ct);
         }
         finally
@@ -224,13 +230,13 @@ public sealed class OutputExecutor(
         }
     }
 
-    private async Task<DeliveryKind> CopyNowAsync(string text, OutputNotice notice)
+    private async Task<DeliveryKind> CopyNowAsync(string text, OutputNotice notice, PasteChord chord, Guid runId)
     {
         await _gate.WaitAsync();
         try
         {
             await FlushCoreAsync();
-            return await CopyAsync(text, notice, CancellationToken.None);
+            return await CopyAsync(text, notice, chord, runId, CancellationToken.None);
         }
         finally
         {
@@ -241,12 +247,14 @@ public sealed class OutputExecutor(
     /// <summary>A copy the user asked for ("Use raw"): kept in clipboard history, with its own notice.</summary>
     public async Task CopyForUserAsync(string text, NoticeKind notice, CancellationToken ct)
     {
+        // The hint names the key of the window in front now: the user's app under the pill, yolime from History.
+        var chord = TerminalDetector.PasteChordFor(targets.Snapshot());
         await _gate.WaitAsync(ct);
         try
         {
             await FlushCoreAsync();
             Own(await clipboard.SetTextAsync(text, excludeFromHistory: false, ct));
-            notices.Show(new Notice(notice));
+            notices.Show(new Notice(notice, Chord: chord));
         }
         finally
         {
@@ -313,6 +321,7 @@ public sealed class OutputExecutor(
                 log.Write(LogEvent.StageFailed, LogField.Tag("stage", Stage.Output), LogField.Error(ex));
             }
             restoreOnExit = false;
+            // The window changed in the last instant, so where the user will paste is unknown: the hint says Ctrl+V.
             if (!quiet) Notify(OutputNotice.CopiedTargetChanged);
             return DeliveryKind.Copied;
         }
@@ -359,14 +368,18 @@ public sealed class OutputExecutor(
         await PendingRestore.ConfigureAwait(false);
     }
 
-    private async Task<DeliveryKind> CopyAsync(string text, OutputNotice notice, CancellationToken ct, Laps? laps = null, bool excludeFromHistory = false)
+    private async Task<DeliveryKind> CopyAsync(string text, OutputNotice notice, PasteChord chord, Guid runId, CancellationToken ct, Laps? laps = null,
+        bool excludeFromHistory = false)
     {
         // "Copied, not pasted" stays in clipboard history: the user may need it after the next copy. The exception is
         // a copy made by the Paste automatically setting while history is paused, where yolime keeps nothing.
         Own(await clipboard.SetTextAsync(text, excludeFromHistory, ct));
         if (laps is not null) laps.Set = laps.Lap();
+        // Recorded even for a quiet copy: the run's Done card names the key then.
+        if (_chords.Count > 32) _chords.Clear();
+        _chords[runId] = chord;
         // None here means "the run explains itself" (QuietCopy): the copy shows nothing of its own.
-        Notify(notice);
+        Notify(notice, chord);
         return DeliveryKind.Copied;
     }
 
@@ -482,10 +495,10 @@ public sealed class OutputExecutor(
         }
     }
 
-    private void Notify(OutputNotice n)
+    private void Notify(OutputNotice n, PasteChord chord = PasteChord.CtrlV)
     {
         // Why a result wasn't pasted, as the enum only: the first thing to know when "it copied instead".
         if (n != OutputNotice.None) log.Write(LogEvent.OutputNotPasted, LogField.Tag("reason", n));
-        if (Notices.For(n) is { } notice) notices.Show(notice);
+        if (Notices.For(n, chord) is { } notice) notices.Show(notice);
     }
 }

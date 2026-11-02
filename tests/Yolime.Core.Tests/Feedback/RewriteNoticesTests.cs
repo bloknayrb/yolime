@@ -89,4 +89,50 @@ public class RewriteNoticesTests
     [Fact]
     public void AFallbackWithoutAnError_StaysQuiet() =>
         Assert.Null(Notices.For(new RunResult { RunId = Guid.NewGuid(), Outcome = RunOutcome.CompletedWithFallback, Mode = Mode.Prompt, Delivery = DeliveryKind.Copied }));
+
+    // ---- the key a copy names ----
+
+    public static TheoryData<PasteChord, string> Chords() => new()
+    {
+        { PasteChord.CtrlV, "Ctrl+V" },
+        { PasteChord.CtrlShiftV, "Ctrl+Shift+V" },
+        { PasteChord.ShiftInsert, "Shift+Insert" },
+    };
+
+    [Theory]
+    [MemberData(nameof(Chords))]
+    public void EveryCopiedText_NamesTheTargetsKey(PasteChord chord, string key)
+    {
+        var texts = new List<string>
+        {
+            Notices.Text(Notices.For(OutputNotice.CopiedTargetChanged, chord)!),
+            Notices.Text(Notices.For(OutputNotice.CopiedElevated, chord)!),
+            Notices.Text(new Notice(NoticeKind.RawCopied, Chord: chord)),
+        };
+        foreach (var f in Enum.GetValues<RewriteFailure>())
+        foreach (var mode in new[] { Mode.Dictate, Mode.Prompt, Mode.Reply })
+        {
+            var r = Fallback(f, mode) with { Delivery = DeliveryKind.Copied, PasteChord = chord };
+            texts.Add(Notices.Text(Notices.For(r)!));
+            texts.Add(Notices.Text(Notices.For(r with { HistoryPaused = true })!));
+        }
+        foreach (var text in texts)
+        {
+            Assert.Contains($"press\u00a0{key}", text);
+            if (chord != PasteChord.CtrlV) Assert.DoesNotContain("Ctrl+V", text);
+        }
+    }
+
+    [Fact]
+    public void APastedFallback_NamesNoKey()
+    {
+        var r = Fallback(RewriteFailure.Server, Mode.Dictate) with { PasteChord = PasteChord.CtrlShiftV };
+        var text = Notices.Text(Notices.For(r)!);
+        Assert.Contains("pasted", text);
+        Assert.DoesNotContain("press", text);
+    }
+
+    [Fact]
+    public void ACopyNotice_WithoutAKey_SaysCtrlV() =>
+        Assert.Contains("press\u00a0Ctrl+V", Notices.Text(Notices.For(OutputNotice.CopiedClipboardOnly)!));
 }

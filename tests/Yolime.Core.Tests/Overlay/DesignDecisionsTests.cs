@@ -1,6 +1,7 @@
 using Yolime.Core.Feedback;
 using Yolime.Core.History;
 using Yolime.Core.Llm;
+using Yolime.Core.Output;
 using Yolime.Core.Overlay;
 using Yolime.Core.Pipeline;
 using Yolime.Core.Stt;
@@ -119,20 +120,23 @@ public class DesignDecisionsTests
 
     // ---- cards-10: one phrasing ----
 
-    [Fact]
-    public void Copied_IsSaidOneWay_AndCtrlVNeverSplitsFromPress()
+    [Theory]
+    [InlineData(PasteChord.CtrlV, "Ctrl+V")]
+    [InlineData(PasteChord.CtrlShiftV, "Ctrl+Shift+V")]
+    [InlineData(PasteChord.ShiftInsert, "Shift+Insert")]
+    public void Copied_IsSaidOneWay_AndTheKeyNeverSplitsFromPress(PasteChord chord, string key)
     {
         foreach (var text in new[]
         {
-            Notices.Text(new Notice(NoticeKind.Copied)),
-            Notices.Text(new Notice(NoticeKind.CopiedAdminWindow)),
-            Notices.Text(new Notice(NoticeKind.RawCopied)),
-            Notices.Text(new Notice(NoticeKind.RewriteTimedOut, Mode.Dictate, Copied: true)),
-            _m.Apply(new RunFinished(Run(RunOutcome.Completed, delivery: DeliveryKind.Copied), null, "Slack", 0)).Title,
+            Notices.Text(new Notice(NoticeKind.Copied, Chord: chord)),
+            Notices.Text(new Notice(NoticeKind.CopiedAdminWindow, Chord: chord)),
+            Notices.Text(new Notice(NoticeKind.RawCopied, Chord: chord)),
+            Notices.Text(new Notice(NoticeKind.RewriteTimedOut, Mode.Dictate, Copied: true, Chord: chord)),
+            _m.Apply(new RunFinished(Run(RunOutcome.Completed, delivery: DeliveryKind.Copied) with { PasteChord = chord }, null, "Slack", 0)).Title,
         })
         {
-            Assert.Contains("copied: press Ctrl+V", text, StringComparison.OrdinalIgnoreCase);
-            Assert.DoesNotContain("press Ctrl+V", text);
+            Assert.Contains($"copied: press\u00a0{key}", text, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain($"press {key}", text);
         }
         Assert.DoesNotContain("type into", Notices.Text(new Notice(NoticeKind.CopiedAdminWindow)));
     }

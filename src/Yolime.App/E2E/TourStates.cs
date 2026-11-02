@@ -3,6 +3,7 @@ using Yolime.Core;
 using Yolime.Core.Feedback;
 using Yolime.Core.History;
 using Yolime.Core.Logging;
+using Yolime.Core.Output;
 using Yolime.Core.Overlay;
 using Yolime.Core.Pipeline;
 using Yolime.Core.Updates;
@@ -74,6 +75,8 @@ internal static class TourStates
         Writing("work-writing", "Outlook", "Hi all, please send me ", "the weekly report before noon tomorrow."),
         Done("done-pasted", Mode.Dictate, "Outlook", DeliveryKind.Pasted, rewritten: false),
         Done("done-copied", Mode.Dictate, "Outlook", DeliveryKind.Copied, rewritten: false),
+        // The longest copied title: Warp pastes with Ctrl+Shift+V.
+        Done("done-copied-warp", Mode.Dictate, "Warp", DeliveryKind.Copied, rewritten: false, PasteChord.CtrlShiftV),
         Done("done-use-raw", Mode.Prompt, "Outlook", DeliveryKind.Pasted, rewritten: true),
         Preview("preview-short", Rewritten),
         Preview("preview-long", LongPreview),
@@ -158,14 +161,14 @@ internal static class TourStates
             v => v.Title == $"Writing for {Short(app)}…" && v.Detail is { } d && (d.StartsWith(first.Trim(), StringComparison.Ordinal) || d.StartsWith('…')));
 
     /// <summary>A finished run with its word count and time; a rewritten paste or copy with a history id offers Use raw.</summary>
-    private static Entry Done(string name, Mode mode, string app, DeliveryKind delivery, bool rewritten) =>
+    private static Entry Done(string name, Mode mode, string app, DeliveryKind delivery, bool rewritten, PasteChord chord = PasteChord.CtrlV) =>
         new(name, OverlayState.Done, None, rewritten && (delivery is DeliveryKind.Pasted or DeliveryKind.Copied), t =>
         {
             var run = Guid.NewGuid();
             var timing = new RunTiming { RunId = run, Mode = mode, StartedUtc = DateTimeOffset.UtcNow, Outcome = RunOutcome.Completed, OutputWords = 14, OutputDoneMs = 1840 };
-            var result = new RunResult { RunId = run, Outcome = RunOutcome.Completed, Mode = mode, Delivery = delivery, Rewritten = rewritten, HistoryId = 7, Timing = timing };
+            var result = new RunResult { RunId = run, Outcome = RunOutcome.Completed, Mode = mode, Delivery = delivery, PasteChord = chord, Rewritten = rewritten, HistoryId = 7, Timing = timing };
             return [Rec(mode, app, t), new Level(Voiced, t + 100), new RecordingEnded(t + 4000), new RunFinished(result, null, app, t + 5800)];
-        }, v => delivery == DeliveryKind.Copied ? v.Title == "Copied: press\u00a0Ctrl+V" : v.Title == $"→ {Short(app)} · 14 words · 1.8 s");
+        }, v => delivery == DeliveryKind.Copied ? v.Title == $"Copied: press\u00a0{chord.KeyName()}" : v.Title == $"→ {Short(app)} · 14 words · 1.8 s");
 
     private static Entry Preview(string name, string text) =>
         new(name, OverlayState.Preview, PreviewButtons, false, t => [Rec(Mode.Raw, "Outlook", t), new Level(Voiced, t + 100), new PreviewShown(text)],
