@@ -32,22 +32,19 @@ internal static class ThemeColors
         apply();
         element.ActualThemeChanged += (_, _) => apply();
         // High contrast on or off doesn't always change ActualTheme; the system colours event covers it.
+        // (AccessibilitySettings.HighContrastChanged can't be used: in an unpackaged app subscribing throws 0x80070490.)
         var ui = new UISettings();
         var queue = element.DispatcherQueue;
         Windows.Foundation.TypedEventHandler<UISettings, object> changed = (_, _) => queue.TryEnqueue(() => apply());
         ui.ColorValuesChanged += changed;
-        var access = new AccessibilitySettings();
-        Windows.Foundation.TypedEventHandler<AccessibilitySettings, object> hc = (_, _) => queue.TryEnqueue(() => apply());
-        access.HighContrastChanged += hc;
         element.Unloaded += (_, _) =>
         {
             ui.ColorValuesChanged -= changed;
-            access.HighContrastChanged -= hc;
-            lock (Keep) { Keep.Remove(ui); Keep.Remove(access); }
+            lock (Keep) Keep.Remove(ui);
         };
-        lock (Keep) { Keep.Add(ui); Keep.Add(access); }
+        lock (Keep) Keep.Add(ui);
     }
 
-    // These raise their events only while the objects are alive.
-    private static readonly List<object> Keep = [];
+    // UISettings raises its events only while the object is alive.
+    private static readonly List<UISettings> Keep = [];
 }

@@ -30,15 +30,15 @@ internal sealed class TintedMicaBackdrop : SystemBackdrop
         Apply();
         _mica.AddSystemBackdropTarget(target);
         _mica.SetSystemBackdropConfiguration(_config);
+        // ColorValuesChanged also fires when high contrast turns on or off. (AccessibilitySettings.HighContrastChanged
+        // can't be used: in an unpackaged app subscribing throws 0x80070490.)
         _ui.ColorValuesChanged += OnChanged;
-        _access.HighContrastChanged += OnChanged;
     }
 
     protected override void OnTargetDisconnected(ICompositionSupportsSystemBackdrop target)
     {
         base.OnTargetDisconnected(target);
         _ui.ColorValuesChanged -= OnChanged;
-        _access.HighContrastChanged -= OnChanged;
         _mica?.RemoveSystemBackdropTarget(target);
         _mica?.Dispose();
         _mica = null;
