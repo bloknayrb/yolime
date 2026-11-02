@@ -167,7 +167,7 @@ internal sealed partial class Scenarios
     private string? SettingsManualPaste()
     {
         if (SetAutoPaste(false) is { } fail) return fail;
-        string? result;
+        string? result = null;
         try
         {
             result = ManualPasteRun();
