@@ -9,6 +9,16 @@ internal static partial class Overlay
 
     public static nint FindPill() => FindWindowW("yolime-overlay-pill", null);
 
+    /// <summary>
+    /// The card's surface per theme (Yolime.Core.Design.Palette's NotchBackground), written out here on purpose: the
+    /// harness states what it expects instead of asking the app, so the wrong-theme control can still catch a mix-up.
+    /// A redesign that changes the surface fails the probe cross-check with both values, then updates this table.
+    /// </summary>
+    public static (int R, int G, int B) ExpectedSurface(string theme) => theme == "light" ? (0xF1, 0xF6, 0xE8) : (0x22, 0x28, 0x1C);
+
+    public static bool Near(Color c, (int R, int G, int B) want, int tolerance = 6) =>
+        Math.Abs(c.R - want.R) <= tolerance && Math.Abs(c.G - want.G) <= tolerance && Math.Abs(c.B - want.B) <= tolerance;
+
     public static bool Visible(nint hwnd) => IsWindowVisible(hwnd);
 
     // The harness process isn't DPI-aware (WinForms' csproj setting needs ApplicationConfiguration.Initialize), so a

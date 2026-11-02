@@ -181,10 +181,18 @@ internal static partial class Tour
         var problems = new List<string>();
         if (Uniform(image)) problems.Add("uniform");
         if (!probe.StartsWith(theme + " ", StringComparison.Ordinal)) problems.Add($"probe says {probe.Split('|')[0]}");
-        // The card's fill, just inside the notch's left edge, mid-height: the theme's grey (COLORREF-free, from the image).
-        var fill = image.GetPixel(n.Left - l + 8, (n.Top + n.Bottom) / 2 - t);
-        var grey = theme == "light" ? 249 : 32;
-        if (Math.Abs(fill.R - grey) > 6 || Math.Abs(fill.G - grey) > 6 || Math.Abs(fill.B - grey) > 6) problems.Add($"fill {fill.R},{fill.G},{fill.B} isn't {grey}");
+        // The card's fill, just inside the notch's left edge, mid-height: the theme's surface (from the image).
+        var want = Overlay.ExpectedSurface(theme);
+        var midY = (n.Top + n.Bottom) / 2 - t;
+        var fill = image.GetPixel(n.Left - l + 8, midY);
+        if (!Overlay.Near(fill, want)) problems.Add($"fill {fill.R},{fill.G},{fill.B} isn't {want.R},{want.G},{want.B}");
+        // No visible border: the card's very first column is the surface too.
+        var edge = image.GetPixel(n.Left - l, midY);
+        if (!Overlay.Near(edge, want)) problems.Add($"edge {edge.R},{edge.G},{edge.B} isn't the surface (a border shows)");
+        // The app's own report of the surface must match the harness's table, so a redesign fails loudly here.
+        var said = probe.Split('|')[0].Split(' ');
+        if (said.Length == 2 && said[0] == theme && said[1] != $"{want.R},{want.G},{want.B}")
+            problems.Add($"app draws {said[1]}, harness expects {want.R},{want.G},{want.B}: update Overlay.ExpectedSurface");
         if (save) Save(image, label, area, name, theme, (l, t, r, b), probe, problems);
         return problems;
     }

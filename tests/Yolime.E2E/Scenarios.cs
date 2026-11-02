@@ -261,10 +261,10 @@ internal sealed partial class Scenarios(TargetForm form)
             var px = Overlay.Pixel(x, y);
             if (!form.IsForeground) return "the overlay took focus";
             Screenshot.Save(Path.Combine(@"C:\results", "overlay-shown.png"));
-            // The card's fill is the light (249) or dark (32) theme grey; COLORREF is 0x00BBGGRR.
-            int r = (int)(px & 0xFF), g = (int)((px >> 8) & 0xFF), b = (int)((px >> 16) & 0xFF);
-            bool Near(int v) => Math.Abs(r - v) <= 6 && Math.Abs(g - v) <= 6 && Math.Abs(b - v) <= 6;
-            if (!Near(249) && !Near(32)) return $"overlay not drawn: pixel 0x{px:X6} at {x},{y}";
+            // The card's fill is the light or dark surface (Overlay.ExpectedSurface); COLORREF is 0x00BBGGRR.
+            var c = Color.FromArgb((int)(px & 0xFF), (int)((px >> 8) & 0xFF), (int)((px >> 16) & 0xFF));
+            if (!Overlay.Near(c, Overlay.ExpectedSurface("light")) && !Overlay.Near(c, Overlay.ExpectedSurface("dark")))
+                return $"overlay not drawn: pixel 0x{px:X6} at {x},{y}";
             return null;
         }
         finally
