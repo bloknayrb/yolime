@@ -231,9 +231,13 @@ internal sealed class SettingsWindow : Window
         Toggle("Double-tap to keep recording", "Tap the hold key twice to record hands-free; tap once more to finish.",
             S.DoubleTapLatch, on => Save(s => s with { DoubleTapLatch = on }));
 
+        Toggle("Paste automatically",
+            "Pastes the text where your cursor is. Off: the text is copied instead, replacing what's on your clipboard, and you paste it yourself. It stays in Windows' clipboard history (Win+V), if that's on, unless Pause history is on. Insert on the preview card and Paste last result still paste.",
+            S.AutoPaste, on => Save(s => s with { AutoPaste = on }));
+
         // Paste-last chord
         var chord = new TextBox { Text = S.PasteLastHotkey, Width = 180 };
-        var chordHelp = Help(_host.Tray.HotkeyProblem is { } problem ? "Not active: " + problem + "." : "Pastes your last result again, for up to 30 minutes.");
+        var chordHelp = Help(_host.Tray.HotkeyProblem is { } problem ? "Not active: " + problem + "." : "Pastes your last result, for up to 30 minutes.");
         var apply = new Button { Content = "Apply" };
         apply.Click += (_, _) =>
         {
@@ -581,7 +585,7 @@ internal sealed class SettingsWindow : Window
             previews.Add(box);
         }
         _page.Children.Add(Horizontal([.. previews]));
-        _page.Children.Add(Help("Or keep Shift held as you let go of the hold key to preview that run; a quick Shift tap changes mode instead."));
+        _page.Children.Add(Help("Or keep Shift held as you let go of the hold key to preview that run; a quick Shift tap changes mode instead. With Paste automatically off, a preview is how to paste a single run."));
 
         var days = new NumberBox { Minimum = 1, Maximum = 3650, Value = S.HistoryRetentionDays, SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Inline, Width = 160 };
         var daysHelp = Help("Older runs are deleted when yolime starts, and right away when you lower this.");

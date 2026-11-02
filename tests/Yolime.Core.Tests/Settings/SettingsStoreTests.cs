@@ -235,6 +235,24 @@ public sealed class SettingsStoreTests : IDisposable
     }
 
     [Fact]
+    public void AutoPaste_DefaultsOn_RoundTripsOff_AndANullResetsIt()
+    {
+        Assert.True(new YolimeSettings().AutoPaste);
+
+        var store = Store();
+        store.Save(new YolimeSettings() with { AutoPaste = false });
+        // The E2E harness reads this exact name from the file.
+        Assert.Contains("\"autoPaste\": false", File.ReadAllText(_root.Paths.SettingsFile));
+        Assert.False(store.Load().Settings.AutoPaste);
+
+        WriteRaw("""{ "autoPaste": null }""");
+        var reset = Store().Load();
+        Assert.Equal(SettingsLoadStatus.Ok, reset.Status);
+        Assert.Equal(["autoPaste"], reset.InvalidFields);
+        Assert.True(reset.Settings.AutoPaste);
+    }
+
+    [Fact]
     public void UnknownFields_PreservedOnSave()
     {
         WriteRaw("""{ "schemaVersion": 1, "futureThing": { "a": 1 } }""");

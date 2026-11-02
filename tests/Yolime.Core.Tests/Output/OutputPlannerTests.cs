@@ -89,6 +89,14 @@ public class OutputPlannerTests
         Assert.Equal((OutputAction.ClipboardOnly, OutputNotice.CopiedClipboardOnly), Pair(OutputPlanner.Plan(Item("x", intent: DeliveryIntent.ClipboardOnly), Word, Word)));
 
     [Fact]
+    public void Rule5_ClipboardOnlyIntent_ComesBeforeNotEditable()
+    {
+        // The executor waits for a click only on CopiedNotEditable: a copy by request must never get that notice.
+        var ro = Word with { IsEditable = false };
+        Assert.Equal(OutputNotice.CopiedClipboardOnly, OutputPlanner.Plan(Item("x", Mode.Reply, intent: DeliveryIntent.ClipboardOnly), ro, ro).Notice);
+    }
+
+    [Fact]
     public void Rule6_NotEditable_Copies_UnknownStillPastes()
     {
         var ro = Word with { IsEditable = false };

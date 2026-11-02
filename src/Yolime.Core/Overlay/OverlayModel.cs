@@ -16,7 +16,7 @@ public enum OverlayButton { Retry, Dismiss, OpenSettings, Insert, Copy, Discard,
 /// <see cref="object.ToString"/>, logs or E2E results: only the state and buttons do.
 /// </summary>
 /// <param name="Narration">What Narrator should announce for this view, or null. Never set while recording.</param>
-/// <param name="OfferUseRaw">The "Use raw" pill: shown beside Done for 5 s after a rewritten paste.</param>
+/// <param name="OfferUseRaw">The "Use raw" pill: shown beside Done for 5 s after a rewritten result is pasted or copied.</param>
 /// <param name="Informational">A card that confirms rather than warns: the info glyph instead of the warning one.</param>
 /// <param name="Page">For a card with Open yolime Settings: the page it opens.</param>
 /// <param name="FixedWidth">Listening and Working keep the card's full width, so a line arriving mid-recording doesn't resize it.</param>
@@ -338,8 +338,10 @@ public sealed class OverlayModel(float silenceRms)
         var narration = copied ? "Copied. Press Ctrl+V to paste." : app.Length == 0 ? $"Pasted, {words} words" : $"Pasted into {app}, {words} words";
         _hideAtMs = at + (copied ? CopiedMs : DoneMs);
         (_hovered, _hoverPausedMs) = (false, 0);
-        var offer = r.Rewritten && r.Delivery == DeliveryKind.Pasted && r.HistoryId is not null;
-        _useRawUntilMs = offer ? at + UseRawMs : 0;
+        // After a copy (Paste automatically off, or a safety copy) it swaps the clipboard to the raw transcript.
+        var offer = r.Rewritten && (r.Delivery is DeliveryKind.Pasted or DeliveryKind.Copied) && r.HistoryId is not null;
+        // After a copy the Done card stays 4 s: the pill goes with it rather than lingering alone for a second.
+        _useRawUntilMs = offer ? at + (copied ? CopiedMs : UseRawMs) : 0;
         return new OverlayView(OverlayState.Done, r.Mode, title, null, null, 0, null, [], false, narration, offer, r.HistoryId, false);
     }
 

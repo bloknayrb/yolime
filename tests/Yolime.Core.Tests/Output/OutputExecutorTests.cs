@@ -219,6 +219,31 @@ public class OutputExecutorTests
     }
 
     [Fact]
+    public async Task ACopyByRequest_StaysOnTheClipboard_InHistory_WithOneNotice()
+    {
+        // Paste automatically off: nothing is pasted and nothing is put back.
+        var e = Executor();
+        Assert.Equal(DeliveryKind.Copied, await e.DeliverAsync(Item(intent: DeliveryIntent.ClipboardOnly), default));
+        Assert.Empty(_inj.Pastes);
+        Assert.Equal("dictated", _clip.Text);
+        await Settle(e);
+        Assert.Equal("dictated", _clip.Text);
+        Assert.True(_clip.InHistory);
+        Assert.Equal(NoticeKind.Copied, Assert.Single(_notes.Shown).Kind);
+    }
+
+    [Fact]
+    public async Task ACopyKeptOutOfClipboardHistory_IsExcluded_AndQuiet()
+    {
+        var e = Executor();
+        var item = Item(intent: DeliveryIntent.ClipboardOnly) with { QuietCopy = true, KeepOutOfClipboardHistory = true };
+        Assert.Equal(DeliveryKind.Copied, await e.DeliverAsync(item, default));
+        Assert.Equal("dictated", _clip.Text);
+        Assert.False(_clip.InHistory);
+        Assert.Empty(_notes.Shown);
+    }
+
+    [Fact]
     public async Task ASlowTarget_GetsItsPasteBeforeTheClipboardIsPutBack()
     {
         // Outlook or an Electron app reading after the usual 800 ms would otherwise paste the user's old clipboard.

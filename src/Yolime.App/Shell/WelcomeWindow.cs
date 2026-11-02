@@ -288,6 +288,7 @@ internal sealed class WelcomeWindow : Window
         // The one yolime window dictation may paste into.
         TargetReader.PracticeWindow = _hwnd;
         if (!_host.SttReady) Text("There's no transcription key yet, so this won't work until you add one (step 1).");
+        if (!_host.Settings.Current.AutoPaste) Text("Paste automatically is off, so your words are copied instead: press Ctrl+V in the box.");
         box.Focus(FocusState.Programmatic);
     }
 
@@ -296,7 +297,7 @@ internal sealed class WelcomeWindow : Window
         Heading("yolime is running");
         Text($"It lives in the notification area. To keep its icon in view, open the ^ overflow by the clock and drag yolime onto the taskbar.");
         var chord = _host.Tray.HotkeyProblem is null
-            ? $"{_host.Settings.Current.PasteLastHotkey} pastes your last result again. "
+            ? $"{_host.Settings.Current.PasteLastHotkey} pastes your last result. "
             : "The paste-last shortcut isn't active (another app holds it); choose another in Settings. ";
         Text($"Hold {HoldKeyRules.Name(_host.Settings.Current.HoldKeyVk)} to dictate anywhere. " + chord + "Right-click the tray icon for Settings.");
     }

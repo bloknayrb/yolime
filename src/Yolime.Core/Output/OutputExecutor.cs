@@ -148,7 +148,7 @@ public sealed class OutputExecutor(
             await FlushCoreAsync();
             laps.Flush = laps.Lap();
             if (decision.Action == OutputAction.ClipboardOnly || modifiersStuck)
-                return await CopyAsync(decision.Text, item.QuietCopy ? OutputNotice.None : decision.Action == OutputAction.ClipboardOnly ? decision.Notice : OutputNotice.CopiedTargetChanged, ct, laps);
+                return await CopyAsync(decision.Text, item.QuietCopy ? OutputNotice.None : decision.Action == OutputAction.ClipboardOnly ? decision.Notice : OutputNotice.CopiedTargetChanged, ct, laps, item.KeepOutOfClipboardHistory);
 
             return await SwapAndPasteAsync(decision, now.Hwnd, item.QuietCopy, TerminalDetector.IsRemote(now), ct, laps);
         }
@@ -215,7 +215,7 @@ public sealed class OutputExecutor(
             }
             await FlushCoreAsync();
             if (decision.Action == OutputAction.ClipboardOnly || modifiersStuck)
-                return await CopyAsync(decision.Text, item.QuietCopy ? OutputNotice.None : modifiersStuck ? OutputNotice.CopiedTargetChanged : decision.Notice, ct);
+                return await CopyAsync(decision.Text, item.QuietCopy ? OutputNotice.None : modifiersStuck ? OutputNotice.CopiedTargetChanged : decision.Notice, ct, excludeFromHistory: item.KeepOutOfClipboardHistory);
             return await SwapAndPasteAsync(decision, now.Hwnd, item.QuietCopy, TerminalDetector.IsRemote(now), ct);
         }
         finally
@@ -359,10 +359,11 @@ public sealed class OutputExecutor(
         await PendingRestore.ConfigureAwait(false);
     }
 
-    private async Task<DeliveryKind> CopyAsync(string text, OutputNotice notice, CancellationToken ct, Laps? laps = null)
+    private async Task<DeliveryKind> CopyAsync(string text, OutputNotice notice, CancellationToken ct, Laps? laps = null, bool excludeFromHistory = false)
     {
-        // "Copied, not pasted" stays in clipboard history: the user may need it after the next copy.
-        Own(await clipboard.SetTextAsync(text, excludeFromHistory: false, ct));
+        // "Copied, not pasted" stays in clipboard history: the user may need it after the next copy. The exception is
+        // a copy made by the Paste automatically setting while history is paused, where yolime keeps nothing.
+        Own(await clipboard.SetTextAsync(text, excludeFromHistory, ct));
         if (laps is not null) laps.Set = laps.Lap();
         // None here means "the run explains itself" (QuietCopy): the copy shows nothing of its own.
         Notify(notice);

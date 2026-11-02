@@ -157,9 +157,9 @@ internal static class TourStates
             // A line over 120 characters shows its end, after an ellipsis.
             v => v.Title == $"Writing for {Short(app)}…" && v.Detail is { } d && (d.StartsWith(first.Trim(), StringComparison.Ordinal) || d.StartsWith('…')));
 
-    /// <summary>A finished run with its word count and time; a rewritten paste with a history id offers Use raw.</summary>
+    /// <summary>A finished run with its word count and time; a rewritten paste or copy with a history id offers Use raw.</summary>
     private static Entry Done(string name, Mode mode, string app, DeliveryKind delivery, bool rewritten) =>
-        new(name, OverlayState.Done, None, rewritten && delivery == DeliveryKind.Pasted, t =>
+        new(name, OverlayState.Done, None, rewritten && (delivery is DeliveryKind.Pasted or DeliveryKind.Copied), t =>
         {
             var run = Guid.NewGuid();
             var timing = new RunTiming { RunId = run, Mode = mode, StartedUtc = DateTimeOffset.UtcNow, Outcome = RunOutcome.Completed, OutputWords = 14, OutputDoneMs = 1840 };

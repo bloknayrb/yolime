@@ -20,6 +20,7 @@ internal sealed partial class Scenarios
         new("Settings_OverlayPosition_Saved", SettingsOverlayPosition),
         new("Settings_Key_SavedInCredentialManager_TestUnreachable_Removed", SettingsKeyRoundTrip),
         new("Settings_HoldKeyCapture_RightShiftDictates", SettingsHoldKeyCapture),
+        new("Settings_PasteAutomaticallyOff_Copies", SettingsManualPaste),
     ];
 
     /// <summary>Dictate, empty the box, press Win+Alt+V: the same result is pasted again.</summary>
@@ -157,6 +158,62 @@ internal sealed partial class Scenarios
         var restored = CaptureHoldKey(Input.RCtrl);
         if (!dictated) return $"holding Right Shift didn't dictate: box1 is '{form.On(() => form.Box1.Text)}'";
         return restored;
+    }
+
+    /// <summary>
+    /// "Paste automatically" off: a Dictate hold leaves the box empty and the transcript on the clipboard, and it stays
+    /// there (no restore). Switched back on at the end so later runs paste.
+    /// </summary>
+    private string? SettingsManualPaste()
+    {
+        if (SetAutoPaste(false) is { } fail) return fail;
+        string? result = null;
+        try
+        {
+            result = ManualPasteRun();
+        }
+        finally
+        {
+            var restored = SetAutoPaste(true);
+            result ??= restored;
+        }
+        return result;
+    }
+
+    private string? ManualPasteRun()
+    {
+        if (Prepare(form.Box1) is { } notReady) return notReady;
+        var runs = RunCount();
+        Input.Hold(Input.RCtrl, 1500); // Dictate, the starting mode: the harness previews Raw
+        if (!WaitRun(runs)) return "no run finished";
+        if (LastRun("delivery") != "Copied") return $"delivery {LastRun("delivery")}";
+        if (!Program.Wait(() => ClipText() == Transcript, 3000)) return $"clipboard is '{ClipText()}'";
+        Thread.Sleep(2500); // past any clipboard restore
+        if (form.On(() => form.Box1.Text) != "") return "text was pasted";
+        return ClipText() == Transcript ? null : $"clipboard was put back: '{ClipText()}'";
+    }
+
+    private string? SetAutoPaste(bool on)
+    {
+        if ((SettingBool("autoPaste") ?? true) == on) return null;
+        using var automation = new UIA3Automation();
+        if (OpenSettings(automation) is not { } window) return "Settings never opened";
+        try
+        {
+            if (Find(window, "General") is { } nav) Activate(nav);
+            // The row's label has the same name: the switch is the one with a Toggle pattern.
+            AutomationElement? toggle = null;
+            if (!Program.Wait(() => (toggle = window.FindAllDescendants(cf => cf.ByName("Paste automatically"))
+                    .FirstOrDefault(e => e.Patterns.Toggle.IsSupported)) is not null, 3000))
+                return "no Paste automatically toggle";
+            toggle!.Patterns.Toggle.Pattern.Toggle();
+            return Program.Wait(() => (SettingBool("autoPaste") ?? true) == on, 3000) ? null : $"autoPaste never became {on}";
+        }
+        finally
+        {
+            CloseQuietly(window);
+            Thread.Sleep(800);
+        }
     }
 
     private string? CaptureHoldKey(ushort vk)
