@@ -42,7 +42,7 @@ internal sealed partial class TrayIcon : INoticeSink, ISounds, IDisposable
 
     private readonly WndProc _wndProc;
     private readonly uint _taskbarCreated;
-    private readonly Dictionary<TrayIconState, nint> _icons;
+    private Dictionary<TrayIconState, nint> _icons;
     private readonly Func<bool> _sounds;
     // The whole notice, so a click on its balloon can go where that notice points (its version included).
     private Notice? _lastBalloon;
@@ -70,15 +70,7 @@ internal sealed partial class TrayIcon : INoticeSink, ISounds, IDisposable
         RegisterSuspendResumeNotification(Hwnd, 0);
         // Feeds clipboard freshness: Reply may use the clipboard only if the user copied it recently.
         ClipboardListening = AddClipboardFormatListener(Hwnd);
-        // States differ by shape as well as colour: a ring for "needs you" (paused, setup), a dot otherwise.
-        _icons = new()
-        {
-            [TrayIconState.Idle] = Dot(0xFF8BC34A, ring: false),
-            [TrayIconState.Recording] = Dot(0xFFE02020, ring: false),
-            [TrayIconState.Paused] = Dot(0xFF9E9E9E, ring: true),
-            [TrayIconState.SetupNeeded] = Dot(0xFFF5A623, ring: true),
-            [TrayIconState.Elevated] = Dot(0xFF7E57C2, ring: false),
-        };
+        _icons = LoadIcons();
         Add();
     }
 
@@ -231,6 +223,8 @@ internal sealed partial class TrayIcon : INoticeSink, ISounds, IDisposable
     {
         if (msg == _taskbarCreated)
         {
+            // Explorer restarted: its taskbar may have a new theme or DPI too.
+            ReloadIcons(update: false);
             Add();
             return 0;
         }
@@ -272,6 +266,14 @@ internal sealed partial class TrayIcon : INoticeSink, ISounds, IDisposable
             case WmEndSession:
                 if (wParam != 0) EndingSession?.Invoke();
                 return 0;
+            // The taskbar's theme ("ImmersiveColorSet"), high contrast, or the display's DPI changed: redraw at the new size and colours.
+            case WmSettingChange when wParam == 0x0043: // SPI_SETHIGHCONTRAST
+            // The theme change arrives with wParam 0 and the area's name in lParam; read it only then.
+            case WmSettingChange when wParam == 0 && lParam != 0 && Marshal.PtrToStringUni(lParam) == "ImmersiveColorSet":
+            case WmDpiChanged:
+            case WmDisplayChange:
+                ReloadIcons(update: true);
+                break;
         }
         return DefWindowProcW(hwnd, msg, wParam, lParam);
     }
@@ -352,6 +354,74 @@ internal sealed partial class TrayIcon : INoticeSink, ISounds, IDisposable
         if (command is CmdPasteLast or CmdRetry && LastAppWindow?.Invoke() is { } target && target != 0 && IsWindow(target))
             SetForegroundWindow(target);
         RunCommand(command);
+    }
+
+    private const uint WmSettingChange = 0x001A;
+    private const uint WmDpiChanged = 0x02E0;
+    private const uint WmDisplayChange = 0x007E;
+
+    /// <summary>
+    /// The tray icons for the taskbar's current theme, at the small-icon size for the current DPI, from the .ico files
+    /// in Assets (tools/make-icons.py). States differ by shape as well as colour. A file that won't load falls back to
+    /// the old drawn dot, so a broken install degrades rather than losing the icon.
+    /// </summary>
+    private Dictionary<TrayIconState, nint> LoadIcons()
+    {
+        var dpi = GetDpiForWindow(Hwnd);
+        var size = GetSystemMetricsForDpi(49, dpi == 0 ? 96 : dpi); // SM_CXSMICON
+        var variant = TaskbarIsLight() ? "light" : "dark";
+        var icons = new Dictionary<TrayIconState, nint>();
+        foreach (var state in Enum.GetValues<TrayIconState>())
+        {
+            var path = Path.Combine(AppContext.BaseDirectory, "Assets", $"tray-{FileState(state)}-{variant}.ico");
+            var icon = LoadImageW(0, path, 1 /* IMAGE_ICON */, size, size, 0x10 /* LR_LOADFROMFILE */);
+            icons[state] = icon != 0 ? icon : Fallback(state);
+        }
+        return icons;
+    }
+
+    /// <summary>The state's name in the tray file names (IconFileTests checks the set).</summary>
+    private static string FileState(TrayIconState state) => state == TrayIconState.SetupNeeded ? "setup" : state.ToString().ToLowerInvariant();
+
+    private static nint Fallback(TrayIconState state) => state switch
+    {
+        TrayIconState.Recording => Dot(0xFFE02020, ring: false),
+        TrayIconState.Paused => Dot(0xFF9E9E9E, ring: true),
+        TrayIconState.SetupNeeded => Dot(0xFFF5A623, ring: true),
+        TrayIconState.Elevated => Dot(0xFF7E57C2, ring: false),
+        _ => Dot(0xFF8BC34A, ring: false),
+    };
+
+    private void ReloadIcons(bool update)
+    {
+        var old = _icons;
+        _icons = LoadIcons();
+        // The shell keeps showing the old handle until it's told about the new one: swap first, destroy after.
+        if (update) Update();
+        foreach (var icon in old.Values) DestroyIcon(icon);
+    }
+
+    /// <summary>
+    /// Whether the taskbar is light. Windows 11 colours the taskbar with the accent only in dark mode, so anything but
+    /// a light taskbar takes the dark variant. In high contrast, by the window colour's brightness.
+    /// </summary>
+    private static bool TaskbarIsLight()
+    {
+        try
+        {
+            var settings = new Windows.UI.ViewManagement.UISettings();
+            if (new Windows.UI.ViewManagement.AccessibilitySettings().HighContrast)
+            {
+                var c = settings.UIElementColor(Windows.UI.ViewManagement.UIElementType.Window);
+                return c.R + c.G + c.B >= 384;
+            }
+            using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize");
+            return key?.GetValue("SystemUsesLightTheme") is int light && light != 0;
+        }
+        catch (Exception)
+        {
+            return false;
+        }
     }
 
     /// <summary>A 16x16 filled dot, or a ring, in one colour.</summary>
@@ -529,6 +599,15 @@ internal sealed partial class TrayIcon : INoticeSink, ISounds, IDisposable
     [LibraryImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static partial bool DestroyIcon(nint icon);
+
+    [LibraryImport("user32.dll", StringMarshalling = StringMarshalling.Utf16)]
+    private static partial nint LoadImageW(nint instance, string name, uint type, int cx, int cy, uint flags);
+
+    [LibraryImport("user32.dll")]
+    private static partial uint GetDpiForWindow(nint hwnd);
+
+    [LibraryImport("user32.dll")]
+    private static partial int GetSystemMetricsForDpi(int index, uint dpi);
 
     [LibraryImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
