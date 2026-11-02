@@ -251,7 +251,7 @@ internal sealed partial class OverlayController : INoticeSink, IDisposable
             _stack.MinWidth = view.FixedWidth ? OverlayGeometry.StackWidth : 220;
             // A new kind of card fades in a little from where it was (never on ticks, countdowns or new detail lines).
             // The window itself resizes at once, so this softens the swap without delaying what it says.
-            if (previous.State != view.State && previous.State != OverlayState.Hidden && _uiSettings.AnimationsEnabled) FadeIn();
+            if (previous.State != view.State && previous.State is not (OverlayState.Hidden or OverlayState.UseRaw) && _uiSettings.AnimationsEnabled) FadeIn();
             _notch.SetClickThrough(!view.Clickable);
             // Re-measure whenever the shape may have changed; position is chosen fresh on each show.
             _notch.Show(_settings().OverlayPosition == OverlayPosition.BottomCentre, MaxWidthDip);
