@@ -79,3 +79,18 @@ Bryan, 2026-11-02: "lets do all three. have an agent plan it out properly" (radi
 - V2/V3 rely on undocumented island transparency; `Overlay_CornersAntialiased` is the tripwire.
 - V4: second window per surface; tearing gated; another topmost window could slip between (1 px ring at worst).
 - Never-draws regression; capture affinity resets; undocumented Sandbox scale override; Sandbox GPU ≠ real GPU.
+
+## Spike findings (2026-11-02, `spike/overlay-corners`, local only)
+Time-boxed to one session; V2 ran first and passed, so V1, V3 and V4 weren't run (the plan prefers a single-window
+V2 over the rest when it passes).
+
+- **V2** (LAYERED + SLWA 255 kept, region removed, `DwmExtendFrameIntoClientArea(-1)`, `WM_ERASEBKGND` → 1, XAML
+  Border draws the rounded card): in the Sandbox (125%) the overlay tour passed 94/94 in both themes, including the
+  capture-exclusion control, and the full E2E passed 52/52 (no focus taken, card buttons and the Copy-raw pill
+  clickable, fit checks, Esc). Zoomed corners: V0 shows a stepped edge with a grey fringe; V2 a smooth arc blending
+  into the wallpaper behind, with no black or grey fringe.
+- **Not measured** (left for Bryan's own look after installing 0.3.0): 100% and 150% scale (the Sandbox runs at
+  125%), a click landing exactly on a transparent corner pixel during Listening, and latency against V0 (no visible
+  difference in the runs).
+- **Shipped:** V2 in `feat/overlay-smooth-corners`. The tour gains a corner check: the window's outermost corner
+  pixel must be neither the card's surface (not rounded) nor black (not transparent).

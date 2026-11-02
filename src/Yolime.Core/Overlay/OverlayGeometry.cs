@@ -1,9 +1,9 @@
 namespace Yolime.Core.Overlay;
 
 /// <summary>
-/// The overlay card's shape, in DIP, in one place: the XAML border, the window region and the width the content gets
-/// all follow from these. The corner stays 12 (not the design's 16) because the window region that shapes it is
-/// 1-bit, so a bigger corner shows its steps more.
+/// The overlay card's shape, in DIP, in one place: the XAML border and the width the content gets follow from these.
+/// The corner is 12, not the design's 16 elsewhere: Bryan's call (2026-11-02) when the corner was still a stepped
+/// 1-bit region, kept now that it's antialiased.
 /// </summary>
 public static class OverlayGeometry
 {
@@ -19,7 +19,4 @@ public static class OverlayGeometry
 
     /// <summary>The room the content has across a full-width card.</summary>
     public static double StackWidth => MaxWidthDip - 2 * (PaddingH + Border);
-
-    /// <summary>CreateRoundRectRgn takes the corner's diameter, in physical pixels.</summary>
-    public static int RegionDiameterPx(double scale) => (int)Math.Round(2 * CornerRadiusDip * scale);
 }

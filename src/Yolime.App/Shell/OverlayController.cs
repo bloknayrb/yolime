@@ -419,8 +419,8 @@ internal sealed partial class OverlayController : INoticeSink, IDisposable
             bg = ThemeColors.Color(tokens.NotchBackground);
             fg = ThemeColors.Color(tokens.Text);
             muted = ThemeColors.Color(tokens.TextMuted);
-            // No visible border: one painted the surface colour keeps the layout identical to high contrast's, and
-            // the 1-bit corner region can't chew a line that isn't there.
+            // No visible border (the design's call): one painted the surface colour keeps the layout identical to
+            // high contrast's, which does draw one.
             edge = bg;
             root.RequestedTheme = dark ? ElementTheme.Dark : ElementTheme.Light;
         }

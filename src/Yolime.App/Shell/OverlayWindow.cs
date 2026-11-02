@@ -12,7 +12,10 @@ namespace Yolime.App.Shell;
 /// <remarks>
 /// WS_EX_NOACTIVATE plus MA_NOACTIVATE keep focus in the user's app even when the window is clicked. WS_EX_LAYERED
 /// stays on for good (toggling it can blank composited content); only WS_EX_TRANSPARENT toggles, for click-through.
-/// All calls on the UI thread.
+/// The corners are the XAML card's own, antialiased: the frame is extended over the whole client area and the
+/// background is never erased, so the window is transparent wherever the island draws nothing. (Until 0.3.0 a 1-bit
+/// window region cut them, with stepped edges; the 2026-11-02 Sandbox spike compared the two, see
+/// docs/superpowers/plans/2026-11-02-overlay-corners.md.) All calls on the UI thread.
 /// </remarks>
 internal sealed partial class OverlayWindow : IDisposable
 {
@@ -25,6 +28,7 @@ internal sealed partial class OverlayWindow : IDisposable
     private const int GwlExStyle = -20;
     private const uint WmMouseActivate = 0x0021;
     private const nint MaNoActivate = 3;
+    private const uint WmEraseBkgnd = 0x0014;
     private const int SwShowNoActivate = 4;
     private const int SwHide = 0;
     private const uint SwpNoActivate = 0x0010;
@@ -56,6 +60,10 @@ internal sealed partial class OverlayWindow : IDisposable
         Hwnd = CreateWindowExW(ex, className, "yolime", WsPopup, 0, 0, 1, 1, 0, 0, cls.Instance, 0);
         // Layered at full alpha: needed for WS_EX_TRANSPARENT to let clicks fall through, and otherwise invisible.
         SetLayeredWindowAttributes(Hwnd, 0, 255, LwaAlpha);
+
+        // Transparent where the island draws nothing, so the card's rounded corners show what's behind the window.
+        var margins = new Margins { Left = -1, Right = -1, Top = -1, Bottom = -1 };
+        DwmExtendFrameIntoClientArea(Hwnd, ref margins);
 
         _island = new DesktopWindowXamlSource();
         _island.Initialize(Microsoft.UI.Win32Interop.GetWindowIdFromWindow(Hwnd));
@@ -132,10 +140,6 @@ internal sealed partial class OverlayWindow : IDisposable
             y = bottom ? info.Work.Bottom - h - (int)(16 * scale) : info.Work.Top + (int)(8 * scale);
         }
         SetWindowPos(Hwnd, -1, x, y, w, h, SwpNoActivate); // HWND_TOPMOST
-        // Rounded corners: a layered window at a single alpha has no per-pixel transparency, so clip the window.
-        // The region excludes its right and bottom edges, hence w + 1 and h + 1.
-        var diameter = Yolime.Core.Overlay.OverlayGeometry.RegionDiameterPx(scale);
-        SetWindowRgn(Hwnd, CreateRoundRectRgn(0, 0, w + 1, h + 1, diameter, diameter), true);
         _island.SiteBridge.MoveAndResize(new Windows.Graphics.RectInt32(0, 0, w, h));
         _island.SiteBridge.Show();
         ShowWindow(Hwnd, SwShowNoActivate);
@@ -154,6 +158,8 @@ internal sealed partial class OverlayWindow : IDisposable
     {
         // A click on a button must never take focus from the app the user is typing in.
         if (msg == WmMouseActivate) return MaNoActivate;
+        // Never paint a background: the corners must stay transparent (see the class remarks).
+        if (msg == WmEraseBkgnd) return 1;
         return DefWindowProcW(hwnd, msg, wParam, lParam);
     }
 
@@ -232,11 +238,14 @@ internal sealed partial class OverlayWindow : IDisposable
     [return: MarshalAs(UnmanagedType.Bool)]
     private static partial bool SetWindowDisplayAffinity(nint hwnd, uint affinity);
 
-    [LibraryImport("user32.dll")]
-    private static partial int SetWindowRgn(nint hwnd, nint region, [MarshalAs(UnmanagedType.Bool)] bool redraw);
+    [StructLayout(LayoutKind.Sequential)]
+    private struct Margins
+    {
+        public int Left, Right, Top, Bottom;
+    }
 
-    [LibraryImport("gdi32.dll")]
-    private static partial nint CreateRoundRectRgn(int left, int top, int right, int bottom, int w, int h);
+    [LibraryImport("dwmapi.dll")]
+    private static partial int DwmExtendFrameIntoClientArea(nint hwnd, ref Margins margins);
 
     [LibraryImport("user32.dll")]
     private static partial nint GetForegroundWindow();
