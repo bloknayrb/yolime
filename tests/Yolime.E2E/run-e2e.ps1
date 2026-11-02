@@ -80,6 +80,13 @@ New-Item -ItemType Directory -Force $results | Out-Null
 if ($Only) { [IO.File]::WriteAllText((Join-Path $results 'only.txt'), (($Only | ForEach-Object { $_ -split ',' } | Where-Object { $_ }) -join "`n")) }
 if ($Areas) { [IO.File]::WriteAllText((Join-Path $results 'areas.txt'), (($Areas | ForEach-Object { $_ -split ',' } | Where-Object { $_ }) -join "`n")) }
 
+# Smart App Control is on inside the Sandbox image even when it's off on the host, and at times it refuses the freshly
+# built, unsigned harness and app ("blocked by your organization's Device Guard policy", CodeIntegrity 3118/3077/3033):
+# the Sandbox then boots to an empty desktop. Seen 2026-10-29, 10-30 and 11-02; a host reboot cleared it twice. The
+# logon command turns it off in the throwaway Sandbox only (the account is an admin) and refreshes the policy, which
+# takes effect without a restart. The host is never touched.
+$harness = 'C:\e2e\harness\Yolime.E2E.exe' + $(if ($Updates) { ' --updates' } elseif ($Tour) { ' --tour' })
+$logon = "cmd /c `"reg add HKLM\SYSTEM\CurrentControlSet\Control\CI\Policy /v VerifiedAndReputablePolicyState /t REG_DWORD /d 0 /f &amp; CiTool.exe --refresh --json &amp; $harness`""
 # Networking, clipboard sharing, the host mic and camera, and printers are all off: the run is sealed from the host.
 $wsb = @"
 <Configuration>
@@ -92,7 +99,7 @@ $wsb = @"
     <MappedFolder><HostFolder>$stage</HostFolder><SandboxFolder>C:\e2e</SandboxFolder><ReadOnly>true</ReadOnly></MappedFolder>
     <MappedFolder><HostFolder>$results</HostFolder><SandboxFolder>C:\results</SandboxFolder><ReadOnly>false</ReadOnly></MappedFolder>
   </MappedFolders>
-  <LogonCommand><Command>C:\e2e\harness\Yolime.E2E.exe$(if ($Updates) { ' --updates' } elseif ($Tour) { ' --tour' })</Command></LogonCommand>
+  <LogonCommand><Command>$logon</Command></LogonCommand>
 </Configuration>
 "@
 $wsbPath = Join-Path $repo $(if ($Updates) { 'artifacts\e2e-updates.wsb' } elseif ($Tour) { 'artifacts\e2e-tour.wsb' } else { 'artifacts\e2e.wsb' })
