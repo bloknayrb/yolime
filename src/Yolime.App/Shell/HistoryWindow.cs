@@ -37,10 +37,11 @@ internal sealed partial class HistoryWindow : Window
     private readonly Button _older = new() { Content = "Load older", Visibility = Visibility.Collapsed };
     private readonly InfoBar _banner = new() { IsClosable = false };
     private readonly InfoBar _status = new() { IsClosable = true };
-    private readonly TextBlock _empty = new() { TextWrapping = TextWrapping.Wrap, Opacity = 0.8, Margin = new Thickness(12), Visibility = Visibility.Collapsed };
-    private readonly StackPanel _detail = new() { Spacing = 12, Padding = new Thickness(20, 16, 20, 20) };
+    private static Style Muted => (Style)Application.Current.Resources["yolime.Muted"];
+    private readonly TextBlock _empty = new() { Style = Muted, Margin = new Thickness(12), Visibility = Visibility.Collapsed };
+    private readonly StackPanel _detail = new() { Spacing = 14, Padding = new Thickness(24, 20, 24, 24) };
     private readonly ScrollViewer _detailScroll = new();
-    private readonly TextBlock _retention = new() { Opacity = 0.75, VerticalAlignment = VerticalAlignment.Center };
+    private readonly TextBlock _retention = new() { Style = Muted, TextWrapping = TextWrapping.NoWrap, VerticalAlignment = VerticalAlignment.Center };
     private readonly SemaphoreSlim _listGate = new(1, 1);
     private HistoryCursor? _cursor;
     private long? _shownId;
@@ -65,7 +66,7 @@ internal sealed partial class HistoryWindow : Window
         _ui = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
         _host = host;
         Title = "yolime history";
-        SystemBackdrop = new MicaBackdrop();
+        SystemBackdrop = new TintedMicaBackdrop();
 
         _modeFilter.Items.Add("All modes");
         foreach (var m in Enum.GetValues<Mode>()) _modeFilter.Items.Add(m.ToString());
@@ -129,12 +130,19 @@ internal sealed partial class HistoryWindow : Window
         Add(right, _status, 0);
         Add(right, _detailScroll, 1);
 
+        // The detail sits on its own content layer, like Settings' pages: Mica's tint shows only around the list.
+        var layer = new Border { Child = right, CornerRadius = new CornerRadius(8, 0, 0, 0), BorderThickness = new Thickness(1, 1, 0, 0) };
+        ThemeColors.Track(layer, () =>
+        {
+            layer.Background = ThemeColors.Brush(layer, "yolime.Content.Background");
+            layer.BorderBrush = ThemeColors.Brush(layer, "yolime.Divider");
+        });
         var root = new Grid();
         root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(380) });
         root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         root.Children.Add(left);
-        Grid.SetColumn(right, 1);
-        root.Children.Add(right);
+        Grid.SetColumn(layer, 1);
+        root.Children.Add(layer);
         Content = root;
         Keys(root);
 
@@ -466,12 +474,23 @@ internal sealed partial class HistoryWindow : Window
     private static UIElement RowView(HistoryItem item)
     {
         var panel = new StackPanel { Spacing = 2, Padding = new Thickness(0, 6, 0, 6) };
-        var top = new TextBlock { Opacity = 0.75, FontSize = 12 };
+        var top = new TextBlock { Style = (Style)Application.Current.Resources["yolime.Caption"], TextWrapping = TextWrapping.NoWrap, TextTrimming = TextTrimming.CharacterEllipsis };
         top.Text = $"{item.When} \u00b7 {item.Mode} \u00b7 {item.App}" + (item.RerunOf is null ? "" : " \u00b7 re-run");
         panel.Children.Add(top);
         panel.Children.Add(new TextBlock { Text = item.FirstLine, TextTrimming = TextTrimming.CharacterEllipsis });
-        var status = new TextBlock { Text = item.Status, FontSize = 12, FontWeight = item.Severity == HistorySeverity.Ok ? FontWeights.Normal : FontWeights.SemiBold };
-        panel.Children.Add(status);
+        var ok = item.Severity == HistorySeverity.Ok;
+        var status = new TextBlock { Text = item.Status, FontSize = 12, FontWeight = ok ? FontWeights.Normal : FontWeights.SemiBold };
+        if (ok) panel.Children.Add(status);
+        else
+        {
+            // A run that needs attention says so with a glyph as well as weight, never by colour alone.
+            var line = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 5 };
+            var glyph = new FontIcon { Glyph = "\ue7ba", FontSize = 11 };
+            AutomationProperties.SetAccessibilityView(glyph, AccessibilityView.Raw);
+            line.Children.Add(glyph);
+            line.Children.Add(status);
+            panel.Children.Add(line);
+        }
         return panel;
     }
 
@@ -501,7 +520,7 @@ internal sealed partial class HistoryWindow : Window
         _detail.Children.Clear();
         if (!_rows.TryGetValue(item.Id, out var row)) return;
 
-        _detail.Children.Add(new TextBlock { Text = $"{item.When} \u00b7 {item.Mode} \u00b7 {item.App}", Style = (Style)Application.Current.Resources["SubtitleTextBlockStyle"], TextWrapping = TextWrapping.Wrap });
+        _detail.Children.Add(new TextBlock { Text = $"{item.When} \u00b7 {item.Mode} \u00b7 {item.App}", Style = (Style)Application.Current.Resources["yolime.PageHeading"] });
         var facts = new List<string> { item.Status };
         if (row.TotalMs is { } total) facts.Add($"{total / 1000.0:0.0} s");
         // A stage that never ran (Raw's rewrite, a short Dictate cleaned locally) still has a time: it isn't a fact.
@@ -509,13 +528,13 @@ internal sealed partial class HistoryWindow : Window
             if (!row.Stages.TryGetValue(stage, out var status) || status != StageStatus.Skipped) facts.Add($"{StageName(stage)} {ms / 1000.0:0.0} s");
         // Said only when the Retry button is there too.
         if (item.CanRetryAudio) facts.Add("recording kept for Retry");
-        _detail.Children.Add(new TextBlock { Text = string.Join(" \u00b7 ", facts), Opacity = 0.8, TextWrapping = TextWrapping.Wrap });
+        _detail.Children.Add(new TextBlock { Text = string.Join(" \u00b7 ", facts), Style = Muted });
         if (row.RerunOf is { } source)
         {
             var label = _rows.TryGetValue(source, out var src) ? HistoryItem.RelativeTime(src.StartedUtc, DateTimeOffset.Now, TimeZoneInfo.Local) : "an earlier run";
             if (label.StartsWith("Today", StringComparison.Ordinal) || label.StartsWith("Yesterday", StringComparison.Ordinal))
                 label = char.ToLowerInvariant(label[0]) + label[1..];
-            _detail.Children.Add(new TextBlock { Text = $"Re-run of {label}", Opacity = 0.8 });
+            _detail.Children.Add(new TextBlock { Text = $"Re-run of {label}", Style = Muted });
         }
 
         _detail.Children.Add(Actions(item, row));
@@ -563,6 +582,7 @@ internal sealed partial class HistoryWindow : Window
         var text = new RichTextBlock { TextWrapping = TextWrapping.Wrap };
         AutomationProperties.SetName(text, "Changes from the transcript to the output: " + diff.Summary);
         var paragraph = new Paragraph();
+        var coloured = new List<(Run Run, string Key)>();
         foreach (var segment in diff.Segments)
         {
             var run = new Run { Text = segment.Text + " " };
@@ -571,16 +591,21 @@ internal sealed partial class HistoryWindow : Window
                 // Struck through and underlined, not only coloured, so it reads in high contrast too.
                 case DiffKind.Removed:
                     run.TextDecorations = Windows.UI.Text.TextDecorations.Strikethrough;
-                    run.Foreground = new SolidColorBrush(Microsoft.UI.ColorHelper.FromArgb(255, 0xC4, 0x2B, 0x1C));
+                    coloured.Add((run, "yolime.Diff.Removed"));
                     break;
                 case DiffKind.Added:
                     run.TextDecorations = Windows.UI.Text.TextDecorations.Underline;
-                    run.Foreground = new SolidColorBrush(Microsoft.UI.ColorHelper.FromArgb(255, 0x10, 0x7C, 0x10));
+                    coloured.Add((run, "yolime.Diff.Added"));
                     break;
             }
             paragraph.Inlines.Add(run);
         }
         text.Blocks.Add(paragraph);
+        // A Run takes no Style, so its colour follows the theme by hand.
+        ThemeColors.Track(text, () =>
+        {
+            foreach (var (run, key) in coloured) run.Foreground = ThemeColors.Brush(text, key);
+        });
         panel.Children.Add(text);
         return panel;
     }
@@ -664,7 +689,7 @@ internal sealed partial class HistoryWindow : Window
         bar.Children.Add(ActionButton("Add word\u2026", () => AddWord(bar)));
         bar.Children.Add(ActionButton("Delete", () => DeleteAsync(item)));
         var actions = new StackPanel { Spacing = 6 };
-        if (paused) actions.Children.Add(new TextBlock { Text = "History is paused: re-runs are off.", Opacity = 0.75 });
+        if (paused) actions.Children.Add(new TextBlock { Text = "History is paused: re-runs are off.", Style = Muted });
         actions.Children.Add(bar);
         return actions;
     }

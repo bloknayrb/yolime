@@ -17,6 +17,14 @@ internal static class Program
     private static int Main(string[] args)
     {
         if (!string.Equals(Environment.UserName, "WDAGUtilityAccount", StringComparison.OrdinalIgnoreCase)) return 64;
+        // Windows animations off (the app reads UISettings.AnimationsEnabled): no fade can be mid-way when a capture or
+        // pixel check runs. The Sandbox is thrown away afterwards, so nothing is restored.
+        // A failure is written down, so a flaky pixel check can be traced back to animations still running.
+        if (!SystemParametersInfoW(0x1043 /* SPI_SETCLIENTAREAANIMATION */, 0, 0, 0x2 /* SPIF_SENDCHANGE */))
+        {
+            Directory.CreateDirectory(Results);
+            File.WriteAllText(Path.Combine(Results, "animations-still-on.txt"), Marshal.GetLastWin32Error().ToString(System.Globalization.CultureInfo.InvariantCulture));
+        }
         if (args.Length == 4 && args[0] == "--flash") return Flash.Child(args);
         // The update scenarios (run-e2e.ps1 -Updates), and their medium-integrity target window.
         if (args.Length == 2 && args[0] == "--target") return TargetChild.Run(args[1]);
@@ -246,6 +254,9 @@ internal static class Program
         }
         return condition();
     }
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool SystemParametersInfoW(uint action, uint param, nint value, uint flags);
 }
 
 internal static class Screenshot

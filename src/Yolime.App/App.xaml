@@ -1,4 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  yolime's look (design "B · Calm & soft", 2026-11-02). Colour values repeat Yolime.Core/Design/Palette.cs, which is
+  the source of truth; AppXamlParityTests keeps the two equal and the three theme dictionaries' yolime.* keys
+  identical. HighContrast maps every yolime.* key to a system colour and overrides nothing of WinUI's.
+-->
 <Application
     x:Class="Yolime.App.App"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -8,6 +13,142 @@
             <ResourceDictionary.MergedDictionaries>
                 <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
             </ResourceDictionary.MergedDictionaries>
+
+            <ResourceDictionary.ThemeDictionaries>
+                <ResourceDictionary x:Key="Light">
+                    <!-- Accent ramp, and the brushes WinUI derives from it (overridden too: XamlControlsResources builds
+                         them in its own scope, so the colour keys alone may not reach them). -->
+                    <Color x:Key="SystemAccentColor">#8BC34A</Color>
+                    <Color x:Key="SystemAccentColorLight1">#A6D267</Color>
+                    <Color x:Key="SystemAccentColorLight2">#C2E38A</Color>
+                    <Color x:Key="SystemAccentColorLight3">#DCF0B8</Color>
+                    <Color x:Key="SystemAccentColorDark1">#36600C</Color>
+                    <Color x:Key="SystemAccentColorDark2">#2A4C09</Color>
+                    <Color x:Key="SystemAccentColorDark3">#1F3906</Color>
+                    <SolidColorBrush x:Key="AccentFillColorDefaultBrush" Color="#36600C" />
+                    <SolidColorBrush x:Key="AccentFillColorSecondaryBrush" Color="#36600C" Opacity="0.9" />
+                    <SolidColorBrush x:Key="AccentFillColorTertiaryBrush" Color="#36600C" Opacity="0.8" />
+                    <SolidColorBrush x:Key="AccentTextFillColorPrimaryBrush" Color="#2A4C09" />
+                    <SolidColorBrush x:Key="AccentTextFillColorSecondaryBrush" Color="#1F3906" />
+                    <SolidColorBrush x:Key="AccentTextFillColorTertiaryBrush" Color="#36600C" />
+                    <SolidColorBrush x:Key="TextOnAccentFillColorPrimaryBrush" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="TextOnAccentFillColorSecondaryBrush" Color="#FFFFFF" Opacity="0.7" />
+                    <SolidColorBrush x:Key="TextOnAccentFillColorSelectedTextBrush" Color="#FFFFFF" />
+
+                    <!-- Selection: nav items and list rows sit on the tinted selection, with the accent pill. -->
+                    <SolidColorBrush x:Key="NavigationViewItemBackgroundSelected" Color="#E5EDD8" />
+                    <SolidColorBrush x:Key="NavigationViewItemBackgroundSelectedPointerOver" Color="#E5EDD8" />
+                    <SolidColorBrush x:Key="NavigationViewItemBackgroundSelectedPressed" Color="#E5EDD8" />
+                    <SolidColorBrush x:Key="NavigationViewSelectionIndicatorForeground" Color="#36600C" />
+                    <SolidColorBrush x:Key="NavigationViewContentBackground" Color="#F8FAF3" />
+                    <SolidColorBrush x:Key="NavigationViewContentGridBorderBrush" Color="#DDE6CF" />
+                    <SolidColorBrush x:Key="ListViewItemBackgroundSelected" Color="#E5EDD8" />
+                    <SolidColorBrush x:Key="ListViewItemBackgroundSelectedPointerOver" Color="#E5EDD8" />
+                    <SolidColorBrush x:Key="ListViewItemBackgroundSelectedPressed" Color="#E5EDD8" />
+                    <SolidColorBrush x:Key="ListViewItemSelectionIndicatorBrush" Color="#36600C" />
+
+                    <SolidColorBrush x:Key="yolime.Text" Color="#1A1A1A" />
+                    <SolidColorBrush x:Key="yolime.Text.Muted" Color="#5C5C5C" />
+                    <SolidColorBrush x:Key="yolime.Content.Background" Color="#F8FAF3" />
+                    <SolidColorBrush x:Key="yolime.Control.Background" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="yolime.Control.Border" Color="#748463" />
+                    <SolidColorBrush x:Key="yolime.Divider" Color="#DDE6CF" />
+                    <SolidColorBrush x:Key="yolime.Nav.Selected" Color="#E5EDD8" />
+                    <SolidColorBrush x:Key="yolime.Accent.Fill" Color="#36600C" />
+                    <SolidColorBrush x:Key="yolime.Accent.OnFill" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="yolime.Accent.Text" Color="#2A4C09" />
+                    <SolidColorBrush x:Key="yolime.Meter.Fill" Color="#36600C" />
+                    <SolidColorBrush x:Key="yolime.Meter.Track" Color="#DCE4CF" />
+                    <SolidColorBrush x:Key="yolime.Meter.Outline" Color="#DCE4CF" />
+                    <SolidColorBrush x:Key="yolime.Diff.Added" Color="#0F7B0F" />
+                    <SolidColorBrush x:Key="yolime.Diff.Removed" Color="#C42B1C" />
+                </ResourceDictionary>
+
+                <ResourceDictionary x:Key="Dark">
+                    <Color x:Key="SystemAccentColor">#8BC34A</Color>
+                    <Color x:Key="SystemAccentColorLight1">#A6D267</Color>
+                    <Color x:Key="SystemAccentColorLight2">#C2E38A</Color>
+                    <Color x:Key="SystemAccentColorLight3">#DCF0B8</Color>
+                    <Color x:Key="SystemAccentColorDark1">#36600C</Color>
+                    <Color x:Key="SystemAccentColorDark2">#2A4C09</Color>
+                    <Color x:Key="SystemAccentColorDark3">#1F3906</Color>
+                    <SolidColorBrush x:Key="AccentFillColorDefaultBrush" Color="#C2E38A" />
+                    <SolidColorBrush x:Key="AccentFillColorSecondaryBrush" Color="#C2E38A" Opacity="0.9" />
+                    <SolidColorBrush x:Key="AccentFillColorTertiaryBrush" Color="#C2E38A" Opacity="0.8" />
+                    <SolidColorBrush x:Key="AccentTextFillColorPrimaryBrush" Color="#DCF0B8" />
+                    <SolidColorBrush x:Key="AccentTextFillColorSecondaryBrush" Color="#DCF0B8" />
+                    <SolidColorBrush x:Key="AccentTextFillColorTertiaryBrush" Color="#C2E38A" />
+                    <SolidColorBrush x:Key="TextOnAccentFillColorPrimaryBrush" Color="#000000" />
+                    <SolidColorBrush x:Key="TextOnAccentFillColorSecondaryBrush" Color="#000000" Opacity="0.6" />
+                    <SolidColorBrush x:Key="TextOnAccentFillColorSelectedTextBrush" Color="#FFFFFF" />
+
+                    <SolidColorBrush x:Key="NavigationViewItemBackgroundSelected" Color="#2F3828" />
+                    <SolidColorBrush x:Key="NavigationViewItemBackgroundSelectedPointerOver" Color="#2F3828" />
+                    <SolidColorBrush x:Key="NavigationViewItemBackgroundSelectedPressed" Color="#2F3828" />
+                    <SolidColorBrush x:Key="NavigationViewSelectionIndicatorForeground" Color="#C2E38A" />
+                    <SolidColorBrush x:Key="NavigationViewContentBackground" Color="#262C20" />
+                    <SolidColorBrush x:Key="NavigationViewContentGridBorderBrush" Color="#39432D" />
+                    <SolidColorBrush x:Key="ListViewItemBackgroundSelected" Color="#2F3828" />
+                    <SolidColorBrush x:Key="ListViewItemBackgroundSelectedPointerOver" Color="#2F3828" />
+                    <SolidColorBrush x:Key="ListViewItemBackgroundSelectedPressed" Color="#2F3828" />
+                    <SolidColorBrush x:Key="ListViewItemSelectionIndicatorBrush" Color="#C2E38A" />
+
+                    <SolidColorBrush x:Key="yolime.Text" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="yolime.Text.Muted" Color="#ABABAB" />
+                    <SolidColorBrush x:Key="yolime.Content.Background" Color="#262C20" />
+                    <SolidColorBrush x:Key="yolime.Control.Background" Color="#2C3326" />
+                    <SolidColorBrush x:Key="yolime.Control.Border" Color="#7E8D6E" />
+                    <SolidColorBrush x:Key="yolime.Divider" Color="#39432D" />
+                    <SolidColorBrush x:Key="yolime.Nav.Selected" Color="#2F3828" />
+                    <SolidColorBrush x:Key="yolime.Accent.Fill" Color="#C2E38A" />
+                    <SolidColorBrush x:Key="yolime.Accent.OnFill" Color="#000000" />
+                    <SolidColorBrush x:Key="yolime.Accent.Text" Color="#DCF0B8" />
+                    <SolidColorBrush x:Key="yolime.Meter.Fill" Color="#A6D267" />
+                    <SolidColorBrush x:Key="yolime.Meter.Track" Color="#3A4330" />
+                    <SolidColorBrush x:Key="yolime.Meter.Outline" Color="#3A4330" />
+                    <SolidColorBrush x:Key="yolime.Diff.Added" Color="#6CCB5F" />
+                    <SolidColorBrush x:Key="yolime.Diff.Removed" Color="#FF99A4" />
+                </ResourceDictionary>
+
+                <ResourceDictionary x:Key="HighContrast">
+                    <SolidColorBrush x:Key="yolime.Text" Color="{ThemeResource SystemColorWindowTextColor}" />
+                    <SolidColorBrush x:Key="yolime.Text.Muted" Color="{ThemeResource SystemColorWindowTextColor}" />
+                    <SolidColorBrush x:Key="yolime.Content.Background" Color="{ThemeResource SystemColorWindowColor}" />
+                    <SolidColorBrush x:Key="yolime.Control.Background" Color="{ThemeResource SystemColorButtonFaceColor}" />
+                    <SolidColorBrush x:Key="yolime.Control.Border" Color="{ThemeResource SystemColorWindowTextColor}" />
+                    <SolidColorBrush x:Key="yolime.Divider" Color="{ThemeResource SystemColorWindowTextColor}" />
+                    <SolidColorBrush x:Key="yolime.Nav.Selected" Color="{ThemeResource SystemColorHighlightColor}" />
+                    <SolidColorBrush x:Key="yolime.Accent.Fill" Color="{ThemeResource SystemColorHighlightColor}" />
+                    <SolidColorBrush x:Key="yolime.Accent.OnFill" Color="{ThemeResource SystemColorHighlightTextColor}" />
+                    <SolidColorBrush x:Key="yolime.Accent.Text" Color="{ThemeResource SystemColorHotlightColor}" />
+                    <SolidColorBrush x:Key="yolime.Meter.Fill" Color="{ThemeResource SystemColorHighlightColor}" />
+                    <!-- A Window-coloured track outlined in WindowText: Highlight against WindowText would hide the level. -->
+                    <SolidColorBrush x:Key="yolime.Meter.Track" Color="{ThemeResource SystemColorWindowColor}" />
+                    <SolidColorBrush x:Key="yolime.Meter.Outline" Color="{ThemeResource SystemColorWindowTextColor}" />
+                    <SolidColorBrush x:Key="yolime.Diff.Added" Color="{ThemeResource SystemColorWindowTextColor}" />
+                    <SolidColorBrush x:Key="yolime.Diff.Removed" Color="{ThemeResource SystemColorWindowTextColor}" />
+                </ResourceDictionary>
+            </ResourceDictionary.ThemeDictionaries>
+
+            <CornerRadius x:Key="ControlCornerRadius">8</CornerRadius>
+
+            <Style x:Key="yolime.Muted" TargetType="TextBlock">
+                <Setter Property="Foreground" Value="{ThemeResource yolime.Text.Muted}" />
+                <Setter Property="TextWrapping" Value="Wrap" />
+            </Style>
+            <Style x:Key="yolime.Caption" TargetType="TextBlock" BasedOn="{StaticResource yolime.Muted}">
+                <Setter Property="FontSize" Value="12" />
+            </Style>
+            <Style x:Key="yolime.PageHeading" TargetType="TextBlock">
+                <Setter Property="FontSize" Value="20" />
+                <Setter Property="FontWeight" Value="Medium" />
+                <Setter Property="LineHeight" Value="28" />
+                <Setter Property="TextWrapping" Value="Wrap" />
+            </Style>
+            <Style x:Key="yolime.WelcomeHeading" TargetType="TextBlock" BasedOn="{StaticResource yolime.PageHeading}">
+                <Setter Property="FontSize" Value="24" />
+                <Setter Property="LineHeight" Value="32" />
+            </Style>
         </ResourceDictionary>
     </Application.Resources>
 </Application>

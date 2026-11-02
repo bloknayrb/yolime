@@ -22,8 +22,8 @@ internal sealed class WelcomeWindow : Window
 
     private readonly AppHost _host;
     private readonly KeyTester _tester;
-    private readonly StackPanel _body = new() { Spacing = 14 };
-    private readonly TextBlock _stepLabel = new() { Opacity = 0.7 };
+    private readonly StackPanel _body = new() { Spacing = 18 };
+    private readonly TextBlock _stepLabel = new() { Style = (Style)Application.Current.Resources["yolime.Muted"] };
     private readonly Button _back = new() { Content = "Back" };
     private readonly HyperlinkButton _skip = new() { Content = "Skip setup" };
     // Shown under the mic test's message only when Windows denied the mic (not when there is none).
@@ -46,7 +46,7 @@ internal sealed class WelcomeWindow : Window
         _tester = new KeyTester(HttpClients.Shared, host.Keys, () => host.Settings.Current);
         _hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
         Title = "Welcome to yolime";
-        SystemBackdrop = new MicaBackdrop();
+        SystemBackdrop = new TintedMicaBackdrop();
 
         _skip.Click += (_, _) => Finish();
         _micPrivacy.Click += (_, _) => _ = Windows.System.Launcher.LaunchUriAsync(new Uri("ms-settings:privacy-microphone"));
@@ -61,7 +61,7 @@ internal sealed class WelcomeWindow : Window
         buttons.Children.Add(_back);
         buttons.Children.Add(_next);
 
-        var root = new Grid { Padding = new Thickness(32, 24, 32, 24), RowSpacing = 16 };
+        var root = new Grid { Padding = new Thickness(40, 30, 40, 30), RowSpacing = 18 };
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -151,16 +151,12 @@ internal sealed class WelcomeWindow : Window
     private void KeyRow(string slot, string label)
     {
         var status = _host.Keys.Status(slot);
-        var state = new TextBlock
+        var state = new StatusLine(status.Origin switch
         {
-            Text = status.Origin switch
-            {
-                KeyOrigin.Saved => "Saved.",
-                KeyOrigin.Environment => "Found in your environment variables.",
-                _ => "Not set yet.",
-            },
-            Opacity = 0.75,
-        };
+            KeyOrigin.Saved => "Saved.",
+            KeyOrigin.Environment => "Found in your environment variables.",
+            _ => "Not set yet.",
+        });
         var box = new PasswordBox { Width = 320, PlaceholderText = "Paste a key" };
         var save = new Button { Content = "Save and test" };
         // Enter in the box saves and tests, unless a test is already running.
@@ -180,22 +176,23 @@ internal sealed class WelcomeWindow : Window
                 box.Password = "";
                 if (error != KeySaveError.None)
                 {
-                    state.Text = error == KeySaveError.StoreFailed ? "Windows refused to save it." : "That doesn't look like a key.";
+                    state.Set(error == KeySaveError.StoreFailed ? "Windows refused to save it." : "That doesn't look like a key.", StatusKind.Problem);
                     return;
                 }
             }
             save.IsEnabled = false;
-            state.Text = "Testing\u2026";
+            state.Set("Testing\u2026");
             var result = await Guarded(() => _tester.TestAsync(slot, null, CancellationToken.None), KeyTestResult.Unreachable);
             save.IsEnabled = true;
-            state.Text = result switch
+            var (text, kind) = result switch
             {
-                KeyTestResult.Ok => "Works.",
-                KeyTestResult.Rejected => "The provider rejected this key. Check it.",
-                KeyTestResult.Malformed => "That doesn't look like a key.",
-                KeyTestResult.NotSet => "Paste a key first.",
-                _ => "Saved, but the provider couldn't be reached to check it.",
+                KeyTestResult.Ok => ("Works.", StatusKind.Ok),
+                KeyTestResult.Rejected => ("The provider rejected this key. Check it.", StatusKind.Problem),
+                KeyTestResult.Malformed => ("That doesn't look like a key.", StatusKind.Problem),
+                KeyTestResult.NotSet => ("Paste a key first.", StatusKind.Neutral),
+                _ => ("Saved, but the provider couldn't be reached to check it.", StatusKind.Problem),
             };
+            state.Set(text, kind);
         }
         _body.Children.Add(new TextBlock { Text = label, Style = (Style)Application.Current.Resources["BodyStrongTextBlockStyle"] });
         var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
@@ -214,14 +211,14 @@ internal sealed class WelcomeWindow : Window
         foreach (var (_, name) in mics) box.Items.Add(name);
         var index = mics.ToList().FindIndex(m => m.Id == _host.Settings.Current.MicDeviceId);
         box.SelectedIndex = index >= 0 ? index + 1 : 0;
-        var level = new ProgressBar { Width = 340, Maximum = 1, HorizontalAlignment = HorizontalAlignment.Left };
-        var note = new TextBlock { Text = "Say something: the bar should move.", Opacity = 0.75 };
+        var level = new LevelMeter { Width = 340, HorizontalAlignment = HorizontalAlignment.Left };
+        var note = new StatusLine("Say something: the bar should move.");
         box.SelectionChanged += (_, _) =>
         {
             var id = box.SelectedIndex <= 0 ? null : mics[box.SelectedIndex - 1].Id;
             _host.Settings.Update(s => s with { MicDeviceId = id });
             // A new device starts clean: the last one's failure (and its privacy link) no longer applies.
-            note.Text = "Say something: the bar should move.";
+            note.Set("Say something: the bar should move.");
             _micPrivacy.Visibility = Visibility.Collapsed;
             StartMeter(level, note);
         };
@@ -238,24 +235,34 @@ internal sealed class WelcomeWindow : Window
         var current = _host.Settings.Current.HoldKeyVk;
         Heading($"Hold {HoldKeyRules.Name(current)}");
         Text("Press and hold it now. Nothing is recorded on this page.");
+        var label = new TextBlock { Text = "Not held", HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
         var light = new Border
         {
             Width = 160,
             Height = 48,
             CornerRadius = new CornerRadius(24),
             HorizontalAlignment = HorizontalAlignment.Left,
-            // Theme brushes: the fixed grey and green read poorly (white on light green was about 2:1) and ignored dark mode.
-            Background = Brush("ControlFillColorSecondaryBrush"),
-            BorderBrush = Brush("ControlStrokeColorDefaultBrush"),
             BorderThickness = new Thickness(1),
-            Child = new TextBlock { Text = "Not held", HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Foreground = Brush("TextFillColorPrimaryBrush") },
+            Child = label,
         };
+        var held = false;
+        // Theme-tracked brushes: the old fixed grey and green read poorly (white on light green was about 2:1) and a
+        // resource lookup kept the launch theme after a switch.
+        void Paint()
+        {
+            light.BackgroundTransition = new Microsoft.UI.Xaml.BrushTransition { Duration = TimeSpan.FromMilliseconds(new Windows.UI.ViewManagement.UISettings().AnimationsEnabled ? 150 : 0) };
+            light.Background = ThemeColors.Brush(light, held ? "yolime.Accent.Fill" : "yolime.Control.Background");
+            light.BorderBrush = ThemeColors.Brush(light, held ? "yolime.Accent.Fill" : "yolime.Control.Border");
+            label.Foreground = ThemeColors.Brush(light, held ? "yolime.Accent.OnFill" : "yolime.Text");
+            label.FontWeight = held ? Microsoft.UI.Text.FontWeights.SemiBold : Microsoft.UI.Text.FontWeights.Normal;
+            label.Text = held ? "Held: it works" : "Not held";
+        }
+        ThemeColors.Track(light, Paint);
         _body.Children.Add(light);
         _holdHandler = down => _ui.TryEnqueue(() =>
         {
-            light.Background = Brush(down ? "AccentFillColorDefaultBrush" : "ControlFillColorSecondaryBrush");
-            ((TextBlock)light.Child).Foreground = Brush(down ? "TextOnAccentFillColorPrimaryBrush" : "TextFillColorPrimaryBrush");
-            ((TextBlock)light.Child).Text = down ? "Held: it works" : "Not held";
+            held = down;
+            Paint();
         });
         _host.Hooks.HoldKeySeen += _holdHandler;
         _host.Hooks.SuppressRuns = true;
@@ -302,7 +309,7 @@ internal sealed class WelcomeWindow : Window
         Text($"Hold {HoldKeyRules.Name(_host.Settings.Current.HoldKeyVk)} to dictate anywhere. " + chord + "Right-click the tray icon for Settings.");
     }
 
-    private void StartMeter(ProgressBar level, TextBlock note)
+    private void StartMeter(LevelMeter level, StatusLine note)
     {
         StopMeter();
         var cts = new CancellationTokenSource();
@@ -330,7 +337,7 @@ internal sealed class WelcomeWindow : Window
             {
                 _ui.TryEnqueue(() =>
                 {
-                    note.Text = MicTestProblem(ex);
+                    note.Set(MicTestProblem(ex), StatusKind.Problem);
                     // The privacy link only where privacy is the likely cause: not for a missing or lost device.
                     var denied = ex is Yolime.Core.Audio.AudioCaptureException { Error: Yolime.Core.Audio.CaptureError.AccessDenied } or System.Runtime.InteropServices.COMException;
                     _micPrivacy.Visibility = denied ? Visibility.Visible : Visibility.Collapsed;
@@ -343,8 +350,6 @@ internal sealed class WelcomeWindow : Window
     internal static string MicTestProblem(Exception ex) => ex is Yolime.Core.Audio.AudioCaptureException { Error: Yolime.Core.Audio.CaptureError.NoDevice }
         ? "No microphone found. Connect one, then try again."
         : "yolime couldn't open the microphone. Check Windows' microphone privacy setting.";
-
-    private static Brush Brush(string key) => (Brush)Application.Current.Resources[key];
 
     private void StopMeter()
     {
@@ -370,8 +375,8 @@ internal sealed class WelcomeWindow : Window
     }
 
     private void Heading(string text) =>
-        _body.Children.Add(new TextBlock { Text = text, Style = (Style)Application.Current.Resources["SubtitleTextBlockStyle"], TextWrapping = TextWrapping.Wrap });
+        _body.Children.Add(new TextBlock { Text = text, Style = (Style)Application.Current.Resources["yolime.WelcomeHeading"] });
 
     private void Text(string text) =>
-        _body.Children.Add(new TextBlock { Text = text, TextWrapping = TextWrapping.Wrap, Opacity = 0.85 });
+        _body.Children.Add(new TextBlock { Text = text, TextWrapping = TextWrapping.Wrap, LineHeight = 21 });
 }
