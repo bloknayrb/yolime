@@ -33,16 +33,28 @@ internal static class ThemeColors
         element.ActualThemeChanged += (_, _) => apply();
         // High contrast on or off doesn't always change ActualTheme; the system colours event covers it.
         // (AccessibilitySettings.HighContrastChanged can't be used: in an unpackaged app subscribing throws 0x80070490.)
-        var ui = new UISettings();
-        var queue = element.DispatcherQueue;
-        Windows.Foundation.TypedEventHandler<UISettings, object> changed = (_, _) => queue.TryEnqueue(() => apply());
-        ui.ColorValuesChanged += changed;
+        // Subscribed only while the element is in the tree, so an element built and dropped before it ever loads (a
+        // History detail pane rebuilt within one frame) holds nothing, and one that loads again subscribes again.
+        UISettings? ui = null;
+        Windows.Foundation.TypedEventHandler<UISettings, object>? changed = null;
+        element.Loaded += (_, _) =>
+        {
+            if (ui is not null) return;
+            var queue = element.DispatcherQueue;
+            ui = new UISettings();
+            changed = (_, _) => queue.TryEnqueue(() => apply());
+            ui.ColorValuesChanged += changed;
+            lock (Keep) Keep.Add(ui);
+            // The theme may have changed while it was out of the tree.
+            apply();
+        };
         element.Unloaded += (_, _) =>
         {
+            if (ui is null) return;
             ui.ColorValuesChanged -= changed;
             lock (Keep) Keep.Remove(ui);
+            ui = null;
         };
-        lock (Keep) Keep.Add(ui);
     }
 
     // UISettings raises its events only while the object is alive.

@@ -28,13 +28,10 @@ internal sealed class StatusLine : Grid
 
     public string Text => _text.Text;
 
-    /// <summary>The text block itself, for live-region announcements.</summary>
-    public TextBlock TextBlock => _text;
-
     public void Set(string text, StatusKind kind = StatusKind.Neutral)
     {
         _text.Text = text;
         _glyph.Visibility = kind == StatusKind.Neutral ? Visibility.Collapsed : Visibility.Visible;
-        _glyph.Glyph = kind == StatusKind.Ok ? "" : ""; // CheckMark, Warning
+        _glyph.Glyph = ((char)(kind == StatusKind.Ok ? 0xE73E : 0xE7BA)).ToString(); // CheckMark, Warning
     }
 }

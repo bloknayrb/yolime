@@ -19,6 +19,7 @@ internal sealed class LevelMeter : Grid
     public LevelMeter()
     {
         Height = Thickness;
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(this, "Microphone level");
         Children.Add(_track);
         Children.Add(_fill);
         SizeChanged += (_, _) => Layout();
@@ -38,6 +39,29 @@ internal sealed class LevelMeter : Grid
             _value = Math.Clamp(double.IsNaN(value) ? 0 : value, 0, 1);
             Layout();
         }
+    }
+
+    /// <summary>Read by Narrator and other UIA clients as a read-only range, like the ProgressBar it replaced.</summary>
+    protected override Microsoft.UI.Xaml.Automation.Peers.AutomationPeer OnCreateAutomationPeer() => new Peer(this);
+
+    private sealed class Peer(LevelMeter owner) : Microsoft.UI.Xaml.Automation.Peers.FrameworkElementAutomationPeer(owner),
+        Microsoft.UI.Xaml.Automation.Provider.IRangeValueProvider
+    {
+        protected override Microsoft.UI.Xaml.Automation.Peers.AutomationControlType GetAutomationControlTypeCore() =>
+            Microsoft.UI.Xaml.Automation.Peers.AutomationControlType.ProgressBar;
+
+        protected override string GetClassNameCore() => nameof(LevelMeter);
+
+        protected override object? GetPatternCore(Microsoft.UI.Xaml.Automation.Peers.PatternInterface pattern) =>
+            pattern == Microsoft.UI.Xaml.Automation.Peers.PatternInterface.RangeValue ? this : base.GetPatternCore(pattern);
+
+        public bool IsReadOnly => true;
+        public double LargeChange => 0.1;
+        public double SmallChange => 0.01;
+        public double Maximum => 1;
+        public double Minimum => 0;
+        public double Value => owner.Value;
+        public void SetValue(double value) => throw new InvalidOperationException("The microphone level is read-only.");
     }
 
     private void Layout()

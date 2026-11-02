@@ -49,6 +49,8 @@ internal sealed class TintedMicaBackdrop : SystemBackdrop
     private void Apply()
     {
         if (_mica is null) return;
+        // Back to Mica's defaults first: the high-contrast branch changes luminosity, which the other branch doesn't set.
+        _mica.ResetProperties();
         var hc = _access.HighContrast;
         if (_config is not null) _config.IsHighContrast = hc;
         if (hc)

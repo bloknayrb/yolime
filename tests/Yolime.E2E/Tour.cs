@@ -346,8 +346,20 @@ internal static partial class Tour
         var label = $"windows/{name}-{theme}";
         var next = window.FindFirstDescendant(cf => cf.ByName("Next").And(cf.ByControlType(FlaUI.Core.Definitions.ControlType.Button)));
         if (next is null) { Fail(label, "no Next button"); return; }
+        // UIA's coordinates follow the harness's DPI awareness (it isn't aware, so they're scaled) while Grab reads
+        // physical pixels: map the button through the window's UIA rect onto its physical frame bounds.
+        var hwnd = window.Properties.NativeWindowHandle.ValueOrDefault;
+        var old = SetThreadDpiAwarenessContext(-4);
+        Rect frame;
+        try { if (DwmGetWindowAttribute(hwnd, 9, out frame, Marshal.SizeOf<Rect>()) != 0) { Fail(label, "no frame bounds"); return; } }
+        finally { SetThreadDpiAwarenessContext(old); }
+        var w = window.BoundingRectangle;
         var b = next.BoundingRectangle;
-        using var image = Overlay.Grab(b.Left + 4, b.Top + b.Height / 2, 1, 1);
+        if (w.Width <= 0 || b.Width <= 0) { Fail(label, "no bounds for Next"); return; }
+        var scale = (frame.Right - frame.Left) / (double)w.Width;
+        var x = frame.Left + (int)Math.Round((b.Left - w.Left + 4) * scale);
+        var y = frame.Top + (int)Math.Round((b.Top - w.Top + b.Height / 2.0) * scale);
+        using var image = Overlay.Grab(x, y, 1, 1);
         var c = image.GetPixel(0, 0);
         var (r, g, bl) = theme == "light" ? (0x36, 0x60, 0x0C) : (0xC2, 0xE3, 0x8A);
         var ok = Math.Abs(c.R - r) <= 10 && Math.Abs(c.G - g) <= 10 && Math.Abs(c.B - bl) <= 10;
