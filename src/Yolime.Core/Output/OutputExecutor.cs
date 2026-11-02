@@ -111,7 +111,8 @@ public sealed class OutputExecutor(
                     try
                     {
                         await FlushCoreAsync();
-                        return await CopyAsync(first.Text, OutputNotice.CopiedClipboardOnly, first.Chord, item.RunId, ct);
+                        // The card may have been up a while: name the key of the window in front now, not at planning.
+                        return await CopyAsync(first.Text, OutputNotice.CopiedClipboardOnly, TerminalDetector.PasteChordFor(targets.Snapshot()), item.RunId, ct);
                     }
                     finally
                     {
@@ -190,7 +191,9 @@ public sealed class OutputExecutor(
         catch (OperationCanceledException) when (ct.IsCancellationRequested && !_closed)
         {
             // A hold-key tap while waiting means "never mind where": the reply is copied, as on a timeout.
-            return await CopyNowAsync(first.Text, item.QuietCopy ? OutputNotice.None : OutputNotice.CopiedNotEditable, first.Chord, item.RunId);
+            // After the wait, the user may be elsewhere: name the key of the window in front now.
+            return await CopyNowAsync(first.Text, item.QuietCopy ? OutputNotice.None : OutputNotice.CopiedNotEditable,
+                TerminalDetector.PasteChordFor(targets.Snapshot()), item.RunId);
         }
         finally
         {
