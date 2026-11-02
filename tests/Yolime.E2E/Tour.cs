@@ -347,11 +347,13 @@ internal static partial class Tour
         var next = window.FindFirstDescendant(cf => cf.ByName("Next").And(cf.ByControlType(FlaUI.Core.Definitions.ControlType.Button)));
         if (next is null) { Fail(label, "no Next button"); return; }
         // UIA's coordinates follow the harness's DPI awareness (it isn't aware, so they're scaled) while Grab reads
-        // physical pixels: map the button through the window's UIA rect onto its physical frame bounds.
+        // physical pixels: map the button through the window's UIA rect onto the same rect read physically. Both are
+        // GetWindowRect's (invisible resize borders included); DWM's frame bounds would leave out the borders and shift
+        // the sample up and left.
         var hwnd = window.Properties.NativeWindowHandle.ValueOrDefault;
         var old = SetThreadDpiAwarenessContext(-4);
         Rect frame;
-        try { if (DwmGetWindowAttribute(hwnd, 9, out frame, Marshal.SizeOf<Rect>()) != 0) { Fail(label, "no frame bounds"); return; } }
+        try { if (!GetWindowRect(hwnd, out frame)) { Fail(label, "no window rect"); return; } }
         finally { SetThreadDpiAwarenessContext(old); }
         var w = window.BoundingRectangle;
         var b = next.BoundingRectangle;
@@ -595,6 +597,10 @@ internal static partial class Tour
 
     [LibraryImport("user32.dll")]
     private static partial nint SetThreadDpiAwarenessContext(nint context);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool GetWindowRect(nint hwnd, out Rect rect);
 
     [LibraryImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
