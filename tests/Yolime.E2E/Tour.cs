@@ -189,6 +189,11 @@ internal static partial class Tour
         // No visible border: the card's very first column is the surface too.
         var edge = image.GetPixel(n.Left - l, midY);
         if (!Overlay.Near(edge, want)) problems.Add($"edge {edge.R},{edge.G},{edge.B} isn't the surface (a border shows)");
+        // The window's outermost corner pixel lies outside the rounded card: it must show what's behind, not the card
+        // (or a black or grey fill, which is what a window that isn't transparent there draws).
+        var corner = image.GetPixel(n.Left - l, n.Top - t);
+        if (Overlay.Near(corner, want)) problems.Add("the corner pixel is the card's surface: the corners aren't rounded");
+        if (corner.R + corner.G + corner.B < 24) problems.Add("the corner pixel is black: the window isn't transparent there");
         // The app's own report of the surface must match the harness's table, so a redesign fails loudly here.
         var said = probe.Split('|')[0].Split(' ');
         if (said.Length == 2 && said[0] == theme && said[1] != $"{want.R},{want.G},{want.B}")
