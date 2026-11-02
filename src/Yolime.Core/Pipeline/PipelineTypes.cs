@@ -67,6 +67,12 @@ public sealed record RunResult
     public string? RawText { get; init; }
     public string? Output { get; init; }
     public DeliveryKind Delivery { get; init; }
+
+    /// <summary>
+    /// The key that pastes where the result was copied for, named by the Done card when <see cref="Delivery"/> is
+    /// Copied. An enum, never text. CtrlV means Ctrl+V, or unknown.
+    /// </summary>
+    public Yolime.Core.Output.PasteChord PasteChord { get; init; }
     public long? HistoryId { get; init; }
     public bool HistoryWritten { get; init; }
     public SttError? SttError { get; init; }

@@ -503,6 +503,7 @@ public sealed class DictationPipeline(
             return run.Finish(RunOutcome.OutputFailed);
         }
         run.Delivery = delivery;
+        run.PasteChord = output.TakeChord(run.Id);
         run.Timing = run.Timing with
         {
             OutputDoneMs = run.SinceAudioEnd(),
@@ -757,6 +758,7 @@ public sealed class DictationPipeline(
         public string? RawText { get; set; }
         public string? Output { get; set; }
         public DeliveryKind Delivery { get; set; }
+        public PasteChord PasteChord { get; set; }
         public bool FallbackUsed { get; set; }
         public SttError? SttError { get; set; }
         public CaptureError? CaptureError { get; set; }
@@ -896,6 +898,7 @@ public sealed class DictationPipeline(
                 RawText = RawText,
                 Output = Output,
                 Delivery = Delivery,
+                PasteChord = PasteChord,
                 HistoryId = HistoryId,
                 HistoryWritten = HistoryWritten && HistoryId is not null,
                 SttError = SttError,

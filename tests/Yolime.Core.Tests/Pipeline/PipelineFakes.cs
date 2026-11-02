@@ -87,6 +87,11 @@ public sealed class FakeSink : IOutputSink
     public Exception? Throw { get; set; }
     public Action<OutputItem>? OnDeliver { get; set; }
 
+    /// <summary>The paste key the sink reports for a copied run.</summary>
+    public PasteChord Chord { get; set; } = PasteChord.CtrlV;
+
+    public PasteChord TakeChord(Guid runId) => Chord;
+
     public Task<DeliveryKind> DeliverAsync(OutputItem item, CancellationToken ct)
     {
         OnDeliver?.Invoke(item);

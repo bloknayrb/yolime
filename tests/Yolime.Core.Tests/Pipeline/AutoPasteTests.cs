@@ -142,4 +142,30 @@ public sealed class AutoPasteTests : IDisposable
         var item = Assert.Single(_rig.Sink.Delivered);
         Assert.Equal(DeliveryIntent.ClipboardOnly, item.Intent);
     }
+
+    [Fact]
+    public async Task Off_TheRunCarriesTheTargetsPasteKey_ForTheDoneCard()
+    {
+        // Each run is a quiet copy: the Done card is the only hint, and in Warp it must say Ctrl+Shift+V.
+        _rig.Sink.Result = Yolime.Core.History.DeliveryKind.Copied;
+        _rig.Sink.Chord = PasteChord.CtrlShiftV;
+        var result = await _rig.Build().RunAsync(Request(Mode.Raw), CancellationToken.None);
+
+        Assert.Equal(PasteChord.CtrlShiftV, result.PasteChord);
+        Assert.Null(Yolime.Core.Feedback.Notices.For(result));
+    }
+
+    [Fact]
+    public async Task Off_AFallbacksNotice_NamesTheTargetsPasteKey()
+    {
+        _rig.Stt.Text = PipelineRig.LongTranscript;
+        _rig.Rewriter = new FakeRewriter(_ => [], RewriteFailure.Server);
+        _rig.Sink.Result = Yolime.Core.History.DeliveryKind.Copied;
+        _rig.Sink.Chord = PasteChord.ShiftInsert;
+        var result = await _rig.Build().RunAsync(Request(Mode.Prompt), CancellationToken.None);
+
+        var notice = Yolime.Core.Feedback.Notices.For(result)!;
+        Assert.Equal(PasteChord.ShiftInsert, notice.Chord);
+        Assert.Contains("press\u00a0Shift+Insert", Yolime.Core.Feedback.Notices.Text(notice));
+    }
 }
