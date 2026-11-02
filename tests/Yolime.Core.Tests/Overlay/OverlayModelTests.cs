@@ -1,5 +1,6 @@
 using Yolime.Core.Feedback;
 using Yolime.Core.History;
+using Yolime.Core.Output;
 using Yolime.Core.Overlay;
 using Yolime.Core.Pipeline;
 
@@ -306,5 +307,26 @@ public class OverlayModelTests
         Assert.DoesNotContain("SENTINEL", v.ToString());
         Assert.DoesNotContain("SENTINEL", shown.ToString());
         Assert.Contains("Preview", shown.ToString()); // the state is still there for diagnostics
+    }
+
+    [Theory]
+    [InlineData(PasteChord.CtrlV, "Ctrl+V")] // also an unknown target, such as a sink that can't tell
+    [InlineData(PasteChord.CtrlShiftV, "Ctrl+Shift+V")]
+    [InlineData(PasteChord.ShiftInsert, "Shift+Insert")]
+    public void Done_WhenCopied_NamesTheTargetsKey_InTitleAndNarration(PasteChord chord, string key)
+    {
+        Start();
+        var v = _m.Apply(new RunFinished(Result(delivery: DeliveryKind.Copied) with { PasteChord = chord }, null, "Warp", 5_000));
+        Assert.Equal($"Copied: press\u00a0{key}", v.Title);
+        Assert.Equal($"Copied. Press {key} to paste.", v.Narration);
+    }
+
+    [Fact]
+    public void Done_WhenPasted_NamesNoKey()
+    {
+        Start();
+        var v = _m.Apply(new RunFinished(Result() with { PasteChord = PasteChord.CtrlShiftV }, null, "Warp", 5_000));
+        Assert.DoesNotContain("Ctrl", v.Title);
+        Assert.DoesNotContain("Ctrl", v.Narration);
     }
 }

@@ -145,10 +145,10 @@ Any other key or click ends it, and so does 20 seconds.
 "Pause hotkeys" pauses it as well.
 
 **Paste automatically** (Settings > General, on by default). Turn it off to paste by hand: each result is copied, the
-notch says so, and you press Ctrl+V where you want it. Your clipboard isn't put back, and the text stays in Windows
-clipboard history (Win+V) unless Pause history is on. Insert on the preview card, Paste last and History's Re-insert
-still paste. The terminal clean-up below happens only when yolime pastes, so text dictated elsewhere and pasted into a
-terminal keeps its line breaks.
+notch says so with the key to press (Ctrl+V, or the terminal's own paste key below), and you paste it where you want
+it. Your clipboard isn't put back, and the text stays in Windows clipboard history (Win+V) unless Pause history is on.
+Insert on the preview card, Paste last and History's Re-insert still paste. The terminal clean-up below happens only
+when yolime pastes, so text dictated elsewhere and pasted into a terminal keeps its line breaks.
 
 **Where text goes.**
 - Normal apps get a paste, and your clipboard is put back afterwards (unless Paste automatically is off).
@@ -156,7 +156,7 @@ terminal keeps its line breaks.
 - **Admin (elevated) windows** and read-only fields get the text on the clipboard instead, with a notice.
 - **Terminals:**
   - Dictate, Prompt and Raw paste: Ctrl+V, or Shift+Insert in mintty and PuTTY, or Ctrl+Shift+V in Warp, Alacritty,
-    WezTerm, kitty, Hyper and Tabby.
+    WezTerm, kitty, Hyper and Tabby. When text is copied instead, the notice names the same key for the window in front.
   - Line breaks become spaces, a leading `!` or `#` is removed (`/` is kept), and no newline is added, so nothing runs
     by itself.
 - **Reply in a terminal or a remote session** (RDP, a VM) is copied, not pasted.

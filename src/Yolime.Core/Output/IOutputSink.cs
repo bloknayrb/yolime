@@ -22,4 +22,10 @@ public sealed record OutputItem(string Text, DeliveryIntent Intent, bool Preview
 public interface IOutputSink
 {
     Task<DeliveryKind> DeliverAsync(OutputItem item, CancellationToken ct);
+
+    /// <summary>
+    /// For a run whose result was copied: the key that pastes where the user is (the "Copied: press …" hint). Taken
+    /// once. CtrlV when unknown: nothing was copied, or the sink doesn't know its target.
+    /// </summary>
+    PasteChord TakeChord(Guid runId) => PasteChord.CtrlV;
 }

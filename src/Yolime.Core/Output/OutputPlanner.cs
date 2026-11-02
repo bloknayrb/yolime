@@ -23,8 +23,24 @@ public enum OutputNotice { None, CopiedTargetChanged, CopiedTerminalReply, Copie
 /// How the target pastes. mintty and PuTTY take Shift+Insert. Several modern terminals pass Ctrl+V through to the
 /// program inside as a literal ^V (Claude Code in Warp), and paste on Ctrl+Shift+V.
 /// </summary>
+/// <remarks>CtrlV is also what an unknown target shows as, in a "copied" hint.</remarks>
 public enum PasteChord { CtrlV, ShiftInsert, CtrlShiftV }
 
+public static class PasteChordNames
+{
+    /// <summary>The keys as the user presses them, for "Copied: press …" hints. The only place these words come from.</summary>
+    public static string KeyName(this PasteChord chord) => chord switch
+    {
+        PasteChord.ShiftInsert => "Shift+Insert",
+        PasteChord.CtrlShiftV => "Ctrl+Shift+V",
+        _ => "Ctrl+V",
+    };
+}
+
+/// <param name="Chord">
+/// How the target as it is now pastes: the key yolime presses on a Paste, and the key a "copied" hint names on a
+/// ClipboardOnly decision.
+/// </param>
 public sealed record OutputDecision(OutputAction Action, string Text, OutputNotice Notice, PasteChord Chord = PasteChord.CtrlV);
 
 public static class TerminalDetector
@@ -80,22 +96,24 @@ public static class OutputPlanner
     {
         var terminal = TerminalDetector.IsTerminal(now);
         var text = Sanitise(item.Text, terminal);
+        // Every copy names the key of the window in front now, where the user will paste (a retry included).
+        var chord = TerminalDetector.PasteChordFor(now);
+        OutputDecision Copy(OutputNotice notice) => new(OutputAction.ClipboardOnly, text, notice, chord);
 
         // Dictating into a password field is refused outright (the controller also refuses at key-down).
         if (atStart?.IsPassword == true) return new(OutputAction.Refuse, text, OutputNotice.Refused);
-        if (atStart is null) return new(OutputAction.ClipboardOnly, text, OutputNotice.CopiedClipboardOnly);
-        if (TargetChanged(atStart, now) || now.IsPassword)
-            return new(OutputAction.ClipboardOnly, text, OutputNotice.CopiedTargetChanged);
+        if (atStart is null) return Copy(OutputNotice.CopiedClipboardOnly);
+        if (TargetChanged(atStart, now) || now.IsPassword) return Copy(OutputNotice.CopiedTargetChanged);
         // yolime's own windows (Settings, the overlay) are never pasted into; the App marks the wizard's practice box
         // as not "own" so dictation can be tried there.
-        if (now.IsOwnProcess) return new(OutputAction.ClipboardOnly, text, OutputNotice.CopiedOwnWindow);
+        if (now.IsOwnProcess) return Copy(OutputNotice.CopiedOwnWindow);
         // UIPI blocks SendInput into an elevated window, so the paste would silently do nothing.
-        if (now.IsElevated) return new(OutputAction.ClipboardOnly, text, OutputNotice.CopiedElevated);
-        if (terminal && item.Mode == Mode.Reply) return new(OutputAction.ClipboardOnly, text, OutputNotice.CopiedTerminalReply);
-        if (item.Mode == Mode.Reply && TerminalDetector.IsRemote(now)) return new(OutputAction.ClipboardOnly, text, OutputNotice.CopiedRemoteReply);
-        if (item.Intent == DeliveryIntent.ClipboardOnly) return new(OutputAction.ClipboardOnly, text, OutputNotice.CopiedClipboardOnly);
-        if (now.IsEditable == false) return new(OutputAction.ClipboardOnly, text, OutputNotice.CopiedNotEditable);
-        return new(OutputAction.Paste, text, OutputNotice.None, TerminalDetector.PasteChordFor(now));
+        if (now.IsElevated) return Copy(OutputNotice.CopiedElevated);
+        if (terminal && item.Mode == Mode.Reply) return Copy(OutputNotice.CopiedTerminalReply);
+        if (item.Mode == Mode.Reply && TerminalDetector.IsRemote(now)) return Copy(OutputNotice.CopiedRemoteReply);
+        if (item.Intent == DeliveryIntent.ClipboardOnly) return Copy(OutputNotice.CopiedClipboardOnly);
+        if (now.IsEditable == false) return Copy(OutputNotice.CopiedNotEditable);
+        return new(OutputAction.Paste, text, OutputNotice.None, chord);
     }
 
     /// <summary>A different window, or a different element in it. A missing RuntimeId (UIA timed out) compares windows only.</summary>

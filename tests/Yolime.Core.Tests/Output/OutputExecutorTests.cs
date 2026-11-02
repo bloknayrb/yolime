@@ -914,6 +914,99 @@ public class OutputExecutorTests
         Assert.Equal([PasteChord.ShiftInsert], _inj.Pastes);
     }
 
+    // ---- the "copied" hint names the target's paste key ----
+
+    private static readonly TargetSnapshot Warp = Word with { Hwnd = 300, ProcessName = "warp", WindowClass = "Warp" };
+    private static readonly TargetSnapshot Mintty = Word with { Hwnd = 400, ProcessName = "mintty", WindowClass = "mintty" };
+
+    [Fact]
+    public async Task ACopyByRequest_InWarp_NamesCtrlShiftV_InTheNotice_AndForTheRun()
+    {
+        (_start, _targets.Now, _targets.ForegroundHwnd) = (Warp, Warp, Warp.Hwnd);
+        var e = Executor();
+        var item = Item(intent: DeliveryIntent.ClipboardOnly);
+        Assert.Equal(DeliveryKind.Copied, await e.DeliverAsync(item, default));
+        var notice = Assert.Single(_notes.Shown);
+        Assert.Equal((NoticeKind.Copied, PasteChord.CtrlShiftV), (notice.Kind, notice.Chord));
+        Assert.Equal(PasteChord.CtrlShiftV, e.TakeChord(item.RunId));
+        Assert.Equal(PasteChord.CtrlV, e.TakeChord(item.RunId)); // taken once
+    }
+
+    [Fact]
+    public async Task AQuietCopy_ShowsNothing_ButTheRunStillKnowsTheKey()
+    {
+        // Paste automatically off: the Done card is the only hint, so the chord must reach the run.
+        (_start, _targets.Now, _targets.ForegroundHwnd) = (Mintty, Mintty, Mintty.Hwnd);
+        var e = Executor();
+        var item = Item(intent: DeliveryIntent.ClipboardOnly) with { QuietCopy = true };
+        await e.DeliverAsync(item, default);
+        Assert.Empty(_notes.Shown);
+        Assert.Equal(PasteChord.ShiftInsert, e.TakeChord(item.RunId));
+    }
+
+    [Fact]
+    public async Task ACopyAfterSwitchingToWarp_NamesWarpsKey()
+    {
+        _targets.Now = Warp; // started in Word, Warp is in front now
+        var e = Executor();
+        var item = Item();
+        Assert.Equal(DeliveryKind.Copied, await e.DeliverAsync(item, default));
+        Assert.Equal(PasteChord.CtrlShiftV, Assert.Single(_notes.Shown).Chord);
+        Assert.Equal(PasteChord.CtrlShiftV, e.TakeChord(item.RunId));
+    }
+
+    [Fact]
+    public async Task ModifiersStuck_InMintty_NamesShiftInsert()
+    {
+        (_start, _targets.Now, _targets.ForegroundHwnd) = (Mintty, Mintty, Mintty.Hwnd);
+        _inj.ModifiersStuck = true;
+        await Executor().DeliverAsync(Item(), default);
+        Assert.Equal(PasteChord.ShiftInsert, Assert.Single(_notes.Shown).Chord);
+    }
+
+    [Fact]
+    public async Task ALastInstantWindowChange_FallsBackToCtrlV()
+    {
+        // Planned for Warp, but another window came to the front just before the paste: where it goes is unknown.
+        (_start, _targets.Now, _targets.ForegroundHwnd) = (Warp, Warp, 999);
+        var e = Executor();
+        var item = Item();
+        Assert.Equal(DeliveryKind.Copied, await e.DeliverAsync(item, default));
+        Assert.Equal(PasteChord.CtrlV, Assert.Single(_notes.Shown).Chord);
+        Assert.Equal(PasteChord.CtrlV, e.TakeChord(item.RunId));
+    }
+
+    [Fact]
+    public async Task APaste_RecordsNoCopyKey()
+    {
+        (_start, _targets.Now, _targets.ForegroundHwnd) = (Warp, Warp, Warp.Hwnd);
+        var e = Executor();
+        var item = Item();
+        Assert.Equal(DeliveryKind.Pasted, await e.DeliverAsync(item, default));
+        Assert.Equal(PasteChord.CtrlV, e.TakeChord(item.RunId));
+        await Settle(e);
+    }
+
+    [Theory]
+    [InlineData("warp", "Warp", PasteChord.CtrlShiftV)]
+    [InlineData("yolime", "WinUIDesktopWin32WindowClass", PasteChord.CtrlV)] // History's Copy: yolime is in front
+    public async Task CopyForUser_NamesTheKeyOfTheWindowInFront(string process, string cls, PasteChord expected)
+    {
+        _targets.Now = Word with { ProcessName = process, WindowClass = cls };
+        await Executor().CopyForUserAsync("raw", NoticeKind.RawCopied, default);
+        var notice = Assert.Single(_notes.Shown);
+        Assert.Equal((NoticeKind.RawCopied, expected), (notice.Kind, notice.Chord));
+    }
+
+    [Fact]
+    public async Task TheNotPastedLog_HoldsOnlyTheReason()
+    {
+        (_start, _targets.Now, _targets.ForegroundHwnd) = (Warp, Warp, Warp.Hwnd);
+        await Executor().DeliverAsync(Item(intent: DeliveryIntent.ClipboardOnly), default);
+        var line = Assert.Single(_log.Lines, l => l.Event == Yolime.Core.Logging.LogEvent.OutputNotPasted);
+        Assert.Equal(["reason=CopiedClipboardOnly"], line.Fields);
+    }
+
     [Fact]
     public async Task SavedBytes_AreWipedAfterRestore()
     {

@@ -75,8 +75,10 @@ public enum NoticeKind
 /// <param name="Problem">For an install attempt that stopped before setup ran: which step.</param>
 /// <param name="NotKept">For a failed run: nothing was kept to retry (history is paused), so the text mustn't offer Retry.</param>
 /// <param name="Retryable">For a finished run: the tray's Retry last failed can try it again (<see cref="Overlay.RunRetry"/>).</param>
+/// <param name="Chord">For a copy: the key that pastes where the user is, named in "press …". CtrlV when unknown.</param>
 public sealed record Notice(NoticeKind Kind, Mode? Mode = null, int? Seconds = null, bool Copied = false, int? HoldKey = null,
-    AppVersion? Version = null, AppVersion? Current = null, UpdateFailure? UpdateFailure = null, UpdateProblem? Problem = null, bool NotKept = false, bool Retryable = false);
+    AppVersion? Version = null, AppVersion? Current = null, UpdateFailure? UpdateFailure = null, UpdateProblem? Problem = null, bool NotKept = false, bool Retryable = false,
+    PasteChord Chord = PasteChord.CtrlV);
 
 public static class Notices
 {
@@ -125,7 +127,7 @@ public static class Notices
         // Only when something was kept: a discard while recording (Esc, a short tap) stays silent.
         RunOutcome.Cancelled when r.HistoryId is not null => new(NoticeKind.Cancelled),
         // The rewrite failed and the run fell back: say why, and (through Mode) where the transcript went.
-        RunOutcome.CompletedWithFallback when r.RewriteError is { } f => new(RewriteKind(f), r.Mode, Copied: r.Delivery != DeliveryKind.Pasted),
+        RunOutcome.CompletedWithFallback when r.RewriteError is { } f => new(RewriteKind(f), r.Mode, Copied: r.Delivery != DeliveryKind.Pasted, Chord: r.PasteChord),
         // A retry from the transcript couldn't start: no Mode, so the copy says nothing was changed.
         RunOutcome.RewriteFailed when r.RewriteError is { } f => new(RewriteKind(f)),
         _ when r.ContextNote == ContextNote.Skipped => new(NoticeKind.ContextSkipped),
@@ -146,13 +148,13 @@ public static class Notices
         _ => NoticeKind.RewriteUnavailable,
     };
 
-    /// <summary>The notice for how a result was delivered.</summary>
-    public static Notice? For(OutputNotice n) => n switch
+    /// <summary>The notice for how a result was delivered; a copy's names <paramref name="chord"/> as the key to press.</summary>
+    public static Notice? For(OutputNotice n, PasteChord chord = PasteChord.CtrlV) => n switch
     {
         OutputNotice.None => null,
         OutputNotice.Refused => new(NoticeKind.PasswordRefused),
-        OutputNotice.CopiedElevated => new(NoticeKind.CopiedAdminWindow),
-        _ => new(NoticeKind.Copied),
+        OutputNotice.CopiedElevated => new(NoticeKind.CopiedAdminWindow, Chord: chord),
+        _ => new(NoticeKind.Copied, Chord: chord),
     };
 
     /// <summary>
@@ -190,8 +192,8 @@ public static class Notices
         NoticeKind.MicLost => Kept("The microphone disconnected.", n, "If anything was recorded, Retry from the tray."),
         NoticeKind.DidntHear => Kept("Didn't hear anything. Is the mic muted?", n, "Retry from the tray to send it anyway."),
         NoticeKind.Busy => $"Still working on your {Noun(n.Mode)}. Tap the hold key to cancel it. This recording wasn't kept.",
-        NoticeKind.Copied => "Copied: press\u00a0Ctrl+V to paste.",
-        NoticeKind.CopiedAdminWindow => "yolime can't paste into admin windows. The text is copied: press\u00a0Ctrl+V.",
+        NoticeKind.Copied => $"Copied: {Press(n)} to paste.",
+        NoticeKind.CopiedAdminWindow => $"yolime can't paste into admin windows. The text is copied: {Press(n)}.",
         NoticeKind.PasswordRefused => "That's a password field: nothing was recorded or typed.",
         NoticeKind.OutputFailed => n.NotKept ? "Couldn't paste or copy the result, and history is paused, so it wasn't kept." : "Couldn't paste or copy the result. It's in history.",
         NoticeKind.Interrupted => Kept("Something went wrong.", n),
@@ -211,7 +213,7 @@ public static class Notices
         NoticeKind.RewriteConfig => Rewrite("Claude rejected the request: check the Prompt model in Settings, under Advanced.", n),
         NoticeKind.RewriteEmpty => Rewrite("Claude returned nothing.", n),
         NoticeKind.HoldKeyReset => "Your hold key isn't supported any more, so it is Right Ctrl now. Pick another in Settings, under General.",
-        NoticeKind.RawCopied => "Raw transcript copied: press\u00a0Ctrl+V.",
+        NoticeKind.RawCopied => $"Raw transcript copied: {Press(n)}.",
         NoticeKind.PreviewKept => "Preview closed: nothing was inserted. The text is kept in history.",
         NoticeKind.ContextSkipped => "The copied text looked like it held a password or key, so it wasn't sent.",
         NoticeKind.UpdateAvailable => $"yolime {Ver(n.Version)} is available. Click to install, or use the tray menu.",
@@ -234,13 +236,16 @@ public static class Notices
     {
         null => $"{why} Nothing was changed.",
         Mode.Dictate when !n.Copied => $"{why} The raw transcript was pasted instead.",
-        Mode.Dictate => $"{why} The raw transcript is copied: press\u00a0Ctrl+V.",
-        _ when n.NotKept => $"{why} The raw transcript is copied: press\u00a0Ctrl+V.",
+        Mode.Dictate => $"{why} The raw transcript is copied: {Press(n)}.",
+        _ when n.NotKept => $"{why} The raw transcript is copied: {Press(n)}.",
         // A key or settings problem: no Retry button on the card, so the way back is the tray, once it's fixed.
-        _ when SettingsPage(n.Kind) is not null => $"{why} The raw transcript is copied: press\u00a0Ctrl+V."
+        _ when SettingsPage(n.Kind) is not null => $"{why} The raw transcript is copied: {Press(n)}."
             + KeptForTray(n, "transcript", n.Kind == NoticeKind.RewriteConfig ? "once that's fixed" : "once the key is in"),
-        _ => $"{why} The raw transcript is copied: press\u00a0Ctrl+V, or use Retry last failed in the tray.",
+        _ => $"{why} The raw transcript is copied: {Press(n)}, or use Retry last failed in the tray.",
     };
+
+    /// <summary>"press" and the key, joined by a no-break space so a line never splits them.</summary>
+    private static string Press(Notice n) => $"press\u00a0{n.Chord.KeyName()}";
 
     /// <summary>
     /// For a key or settings problem whose run can be retried: where to retry from, in words the card's Retry-button

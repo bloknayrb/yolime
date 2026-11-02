@@ -202,4 +202,67 @@ public class OutputPlannerTests
         Assert.Equal("/etc/hosts is the file", OutputPlanner.Plan(Item("/etc/hosts is the file"), Word, Word).Text);
 
     private static (OutputAction, OutputNotice) Pair(OutputDecision d) => (d.Action, d.Notice);
+
+    // ---- a copy names the key of the window in front now ----
+
+    private static readonly TargetSnapshot WarpApp = Word with { Hwnd = 300, ProcessName = "warp", WindowClass = "Warp" };
+    private static readonly TargetSnapshot MinttyApp = Word with { Hwnd = 400, ProcessName = "mintty", WindowClass = "mintty" };
+
+    public static TheoryData<string, PasteChord> Apps() => new()
+    {
+        { "warp", PasteChord.CtrlShiftV },
+        { "mintty", PasteChord.ShiftInsert },
+        { "word", PasteChord.CtrlV },
+    };
+
+    [Theory]
+    [MemberData(nameof(Apps))]
+    public void EveryCopyRule_CarriesTheChordOfTheWindowInFront(string app, PasteChord expected)
+    {
+        var t = app switch { "warp" => WarpApp, "mintty" => MinttyApp, _ => Word };
+        var copies = new List<OutputDecision>
+        {
+            OutputPlanner.Plan(Item("x"), null, t), // a retry
+            OutputPlanner.Plan(Item("x"), Word with { Hwnd = 7 }, t), // target changed
+            OutputPlanner.Plan(Item("x"), t, t with { IsElevated = true }),
+            OutputPlanner.Plan(Item("x", intent: DeliveryIntent.ClipboardOnly), t, t),
+            OutputPlanner.Plan(Item("x"), t, t with { IsEditable = false }),
+        };
+        // Reply in a terminal is copied too (Warp and mintty are terminals; Word isn't).
+        if (app != "word") copies.Add(OutputPlanner.Plan(Item("x", Mode.Reply), t, t));
+        Assert.All(copies, d =>
+        {
+            Assert.Equal(OutputAction.ClipboardOnly, d.Action);
+            Assert.Equal(expected, d.Chord);
+        });
+    }
+
+    [Fact]
+    public void ARetry_InWarp_NamesWarpsKey()
+    {
+        // No start target, but the window in front is where the user will paste (a bare-tap retry from Warp).
+        var warp = Word with { ProcessName = "warp", WindowClass = "Warp" };
+        Assert.Equal(PasteChord.CtrlShiftV, OutputPlanner.Plan(Item("x"), null, warp).Chord);
+    }
+
+    [Fact]
+    public void ACopyAfterSwitching_NamesTheNewWindowsKey()
+    {
+        var mintty = Word with { Hwnd = 9, ProcessName = "mintty", WindowClass = "mintty" };
+        var d = OutputPlanner.Plan(Item("x"), Word, mintty);
+        Assert.Equal((OutputNotice.CopiedTargetChanged, PasteChord.ShiftInsert), (d.Notice, d.Chord));
+    }
+
+    [Fact]
+    public void YolimesOwnWindow_NamesCtrlV()
+    {
+        var own = Word with { ProcessName = "yolime", WindowClass = "WinUIDesktopWin32WindowClass", IsOwnProcess = true };
+        Assert.Equal(PasteChord.CtrlV, OutputPlanner.Plan(Item("x"), own, own).Chord);
+    }
+
+    [Theory]
+    [InlineData(PasteChord.CtrlV, "Ctrl+V")]
+    [InlineData(PasteChord.CtrlShiftV, "Ctrl+Shift+V")]
+    [InlineData(PasteChord.ShiftInsert, "Shift+Insert")]
+    public void KeyName_SaysTheKeys(PasteChord chord, string expected) => Assert.Equal(expected, chord.KeyName());
 }

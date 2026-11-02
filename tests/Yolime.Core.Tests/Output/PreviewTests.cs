@@ -117,6 +117,16 @@ public class PreviewTests
     }
 
     [Fact]
+    public async Task Copy_InMintty_RecordsShiftInsert()
+    {
+        _targets.Now = Word with { WindowClass = "mintty", ProcessName = "mintty" };
+        var e = Executor(new Prompt(PreviewChoice.Copy));
+        var item = Item();
+        Assert.Equal(DeliveryKind.Copied, await e.DeliverAsync(item, default));
+        Assert.Equal(PasteChord.ShiftInsert, e.TakeChord(item.RunId));
+    }
+
+    [Fact]
     public async Task Copy_PutsItOnTheClipboard_KeptInHistory()
     {
         Assert.Equal(DeliveryKind.Copied, await Executor(new Prompt(PreviewChoice.Copy)).DeliverAsync(Item(), default));

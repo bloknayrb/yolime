@@ -1,6 +1,7 @@
 using System.Text;
 using Yolime.Core.Feedback;
 using Yolime.Core.History;
+using Yolime.Core.Output;
 using Yolime.Core.Pipeline;
 
 namespace Yolime.Core.Overlay;
@@ -332,10 +333,11 @@ public sealed class OverlayModel(float silenceRms)
         var copied = r.Delivery == DeliveryKind.Copied;
         var seconds = (r.Timing?.OutputDoneMs ?? 0) / 1000.0;
         var words = r.Timing?.OutputWords ?? 0;
-        var title = copied ? "Copied: press\u00a0Ctrl+V"
+        var key = r.PasteChord.KeyName();
+        var title = copied ? $"Copied: press\u00a0{key}"
             : $"→ {ShortApp(app)} · {words} words · {seconds.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture)} s";
         // Narrator reads words, not the arrow and dots.
-        var narration = copied ? "Copied. Press Ctrl+V to paste." : app.Length == 0 ? $"Pasted, {words} words" : $"Pasted into {app}, {words} words";
+        var narration = copied ? $"Copied. Press {key} to paste." : app.Length == 0 ? $"Pasted, {words} words" : $"Pasted into {app}, {words} words";
         _hideAtMs = at + (copied ? CopiedMs : DoneMs);
         (_hovered, _hoverPausedMs) = (false, 0);
         // After a copy (Paste automatically off, or a safety copy) it swaps the clipboard to the raw transcript.

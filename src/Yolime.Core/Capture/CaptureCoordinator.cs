@@ -255,6 +255,8 @@ public sealed class CaptureCoordinator(
         finally
         {
             lock (_gate) _startSnapshots.Remove(runId);
+            // No Done card here: drop the copy's key so it doesn't sit in the executor until its size cap clears it.
+            output.TakeChord(runId);
         }
     }
 
