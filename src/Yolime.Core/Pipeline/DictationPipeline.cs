@@ -465,9 +465,10 @@ public sealed class DictationPipeline(
             }
         }
         // Paste automatically off: the result is copied for the user to paste. The run's Done card says "Copied", so
-        // the copy itself stays quiet; while history is paused the copy also stays out of Win+V history.
-        var manual = !s.AutoPaste && !preview && deliveryIntent == DeliveryIntent.Paste;
-        if (manual)
+        // the copy itself stays quiet. While history is paused every copy of such a run (a Prompt or Reply fallback
+        // too) stays out of Win+V history.
+        var manual = !s.AutoPaste && !preview && !run.ClipboardOnly;
+        if (manual && deliveryIntent == DeliveryIntent.Paste)
         {
             deliveryIntent = DeliveryIntent.ClipboardOnly;
             quiet = true;

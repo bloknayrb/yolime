@@ -100,6 +100,22 @@ public sealed class AutoPasteTests : IDisposable
         Assert.True(item.KeepOutOfClipboardHistory);
     }
 
+    [Theory]
+    [InlineData(Mode.Prompt)] // already a copy by fallback: still kept out while paused
+    [InlineData(Mode.Reply)]
+    [InlineData(Mode.Dictate)]
+    public async Task Off_WithHistoryPaused_AFallbackCopyStaysOutOfClipboardHistory(Mode mode)
+    {
+        _rig.Settings = _rig.Settings with { HistoryPaused = true };
+        _rig.Stt.Text = PipelineRig.LongTranscript;
+        _rig.Rewriter = new FakeRewriter(_ => [], RewriteFailure.Server);
+        await _rig.Build().RunAsync(Request(mode), CancellationToken.None);
+
+        var item = Assert.Single(_rig.Sink.Delivered);
+        Assert.Equal(DeliveryIntent.ClipboardOnly, item.Intent);
+        Assert.True(item.KeepOutOfClipboardHistory);
+    }
+
     [Fact]
     public async Task On_WithHistoryPaused_APasteIsUnchanged()
     {
