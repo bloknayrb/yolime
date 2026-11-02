@@ -7,7 +7,12 @@ public enum DeliveryIntent { Paste, ClipboardOnly }
 /// <param name="Mode">The run's final mode; terminals treat Reply differently.</param>
 /// <param name="RunId">Lets the sink find the target snapshot taken when this run started.</param>
 /// <param name="QuietCopy">The run will explain itself (a rewrite failure, a held-back reply), so a copy shows no notice of its own.</param>
-public sealed record OutputItem(string Text, DeliveryIntent Intent, bool PreviewRequested, Mode Mode, Guid RunId, bool QuietCopy = false);
+/// <param name="KeepOutOfClipboardHistory">
+/// A copy stays out of Windows clipboard history (Win+V): a copy made because Paste automatically is off while history
+/// is paused, where yolime promises to keep nothing.
+/// </param>
+public sealed record OutputItem(string Text, DeliveryIntent Intent, bool PreviewRequested, Mode Mode, Guid RunId, bool QuietCopy = false,
+    bool KeepOutOfClipboardHistory = false);
 
 /// <summary>
 /// Puts the result where it belongs: pasted at the cursor, or left on the clipboard. The sink owns all output

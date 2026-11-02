@@ -200,7 +200,7 @@ public static class Notices
         NoticeKind.CapReached => "Reached the recording limit: it's being transcribed now.",
         NoticeKind.Cancelled => "Cancelled. Your recording is kept: Retry from the tray if you want it after all.",
         NoticeKind.RetryUnavailable => "There's nothing to retry.",
-        NoticeKind.PasteLastUnavailable => "There's nothing to paste again. Results are kept for 30 minutes, and not while history is paused.",
+        NoticeKind.PasteLastUnavailable => "There's no recent result to paste. Results are kept for 30 minutes, and not while history is paused.",
         NoticeKind.RewriteNoKey => Rewrite("No Claude key yet. Add one in Settings, under Keys.", n),
         NoticeKind.RewriteKeyRejected => Rewrite("Claude rejected the API key.", n),
         NoticeKind.RewriteOutOfCredit => Rewrite("The Claude account is out of credit.", n),

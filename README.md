@@ -104,8 +104,8 @@ and say why.
 
 ## Using it
 
-**Hold Right Ctrl, speak, let go.** The text is pasted where your cursor is. The hold key can be Right Ctrl, Right
-Shift or Pause (Settings > General).
+**Hold Right Ctrl, speak, let go.** The text is pasted where your cursor is (or only copied, with Paste automatically
+off). The hold key can be Right Ctrl, Right Shift or Pause (Settings > General).
 
 - Under 300 ms is a tap, not a recording: Right Ctrl shortcuts keep working.
 - **Any other key, a click or a scroll** during the hold cancels it, and so does switching to another app.
@@ -134,18 +134,24 @@ are built in.
 
 **The notch** at the top (or bottom) centre of the screen shows Listening, the mode, progress and errors. Error cards
 have Retry; a bare tap of the hold key retries too (not with double-tap on, where a tap may start hands-free). After
-a rewritten paste, a **Copy raw** pill is offered for 5 seconds (any key dismisses it): it copies the original
+a rewritten result is pasted or copied, a **Copy raw** pill is offered for 5 seconds (any key dismisses it): it copies the original
 transcript.
 
 **Preview.** Hold **Shift** as you let go of the hold key, or tick "Always preview" for a mode in Settings. The
 result shows on a card: **Enter** inserts, **Esc** discards, **C** copies, and Up, Down, Page Up and Page Down scroll.
 Any other key or click ends it, and so does 20 seconds.
 
-**Paste last:** **Win+Alt+V** pastes your last result again, for 30 minutes. It can be changed in Settings > General.
+**Paste last:** **Win+Alt+V** pastes your last result, for 30 minutes. It can be changed in Settings > General.
 "Pause hotkeys" pauses it as well.
 
+**Paste automatically** (Settings > General, on by default). Turn it off to paste by hand: each result is copied, the
+notch says so, and you press Ctrl+V where you want it. Your clipboard isn't put back, and the text stays in Windows
+clipboard history (Win+V) unless Pause history is on. Insert on the preview card, Paste last and History's Re-insert
+still paste. The terminal clean-up below happens only when yolime pastes, so text dictated elsewhere and pasted into a
+terminal keeps its line breaks.
+
 **Where text goes.**
-- Normal apps get a paste, and your clipboard is put back afterwards.
+- Normal apps get a paste, and your clipboard is put back afterwards (unless Paste automatically is off).
 - **Password fields** are refused, with a notice, and nothing is kept in history.
 - **Admin (elevated) windows** and read-only fields get the text on the clipboard instead, with a notice.
 - **Terminals:**
@@ -243,6 +249,7 @@ back to the normal upload if the stream fails. Verified with `gpt-4o-transcribe`
 - One hold key for all modes: no Alt key, and no separate key per mode.
 - A re-run from History can't be cancelled once started.
 - Windows clipboard history (Win+V) keeps copies of anything yolime puts on the clipboard, including History's Copy.
+  With Paste automatically off that is every result, unless Pause history is on.
 - Changing some Settings pages rebuilds the page, which can drop unsaved text in another field on it.
 - At 150 % display scaling the tray icon's dot looks soft.
 

@@ -112,11 +112,13 @@ public class OverlayModelTests
         Assert.Equal(OverlayState.Hidden, _m.Apply(new Tick(6_200)).State);
     }
 
-    [Fact]
-    public void Done_WhenCopied_SaysSo_ForFourSeconds()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)] // with Copy raw offered, the pill goes with the card
+    public void Done_WhenCopied_SaysSo_ForFourSeconds(bool rewritten)
     {
         Start();
-        var v = _m.Apply(new RunFinished(Result(delivery: DeliveryKind.Copied), null, "Slack", 5_000));
+        var v = _m.Apply(new RunFinished(Result(delivery: DeliveryKind.Copied, rewritten: rewritten), null, "Slack", 5_000));
         Assert.Equal("Copied: press\u00a0Ctrl+V", v.Title);
         Assert.Equal(OverlayState.Done, _m.Apply(new Tick(8_999)).State);
         Assert.Equal(OverlayState.Hidden, _m.Apply(new Tick(9_000)).State);
@@ -148,11 +150,22 @@ public class OverlayModelTests
 
     [Theory]
     [InlineData(false, DeliveryKind.Pasted)]
-    [InlineData(true, DeliveryKind.Copied)]
-    public void UseRaw_IsNotOffered_ForUnrewrittenOrCopiedResults(bool rewritten, DeliveryKind delivery)
+    [InlineData(false, DeliveryKind.Copied)]
+    [InlineData(true, DeliveryKind.Discarded)]
+    public void UseRaw_IsNotOffered_ForUnrewrittenOrUndeliveredResults(bool rewritten, DeliveryKind delivery)
     {
         Start();
         Assert.False(_m.Apply(new RunFinished(Result(rewritten: rewritten, delivery: delivery), null, "Slack", 5_000)).OfferUseRaw);
+    }
+
+    [Fact]
+    public void UseRaw_IsOffered_AfterARewrittenCopy()
+    {
+        // Paste automatically off: the rewrite is on the clipboard, and Copy raw swaps it for the transcript.
+        Start();
+        var v = _m.Apply(new RunFinished(Result(delivery: DeliveryKind.Copied), null, "Slack", 5_000));
+        Assert.True(v.OfferUseRaw);
+        Assert.Equal("Copied: press\u00a0Ctrl+V", v.Title);
     }
 
     [Fact]

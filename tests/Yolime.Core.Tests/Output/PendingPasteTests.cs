@@ -92,6 +92,23 @@ public class PendingPasteTests
     }
 
     [Fact]
+    public async Task AReplyCopiedByRequest_NeverWaitsForAClick()
+    {
+        // Paste automatically off: there is no paste to wait for, so the reply is copied at once.
+        var waiter = new Waiter(() => Compose, _targets);
+        var e = Executor(waiter);
+        var raised = false;
+        e.PendingPaste += _ => raised = true;
+
+        Assert.Equal(DeliveryKind.Copied, await e.DeliverAsync(Reply() with { Intent = DeliveryIntent.ClipboardOnly }, default));
+        Assert.Equal(0, waiter.Asked);
+        Assert.False(raised);
+        Assert.Equal(0, _inj.Pastes);
+        Assert.Equal("reply text", _clip.Text);
+        Assert.Equal([NoticeKind.Copied], _notes.Shown);
+    }
+
+    [Fact]
     public async Task AClickWithCtrlStillHeld_Copies_NeverLosesTheReply()
     {
         _inj.Stuck = true;

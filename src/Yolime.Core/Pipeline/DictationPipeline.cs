@@ -422,7 +422,11 @@ public sealed class DictationPipeline(
         // A re-run has no window to paste into: it always goes to the clipboard.
         var deliveryIntent = run.ClipboardOnly ? DeliveryIntent.ClipboardOnly : DeliveryIntent.Paste;
         var quiet = false;
-        var def = ModeCatalog.For(run.Mode, settings());
+        // One snapshot for the whole run: a setting saved mid-run applies to the next one.
+        var s = settings();
+        // A preview card's Insert is an explicit paste, so a run that shows one keeps its intent.
+        var preview = !run.ClipboardOnly && (intent.PreviewRequested || s.PreviewsAlways(run.Mode));
+        var def = ModeCatalog.For(run.Mode, s);
         if (def is null)
         {
             text = raw;
@@ -460,6 +464,14 @@ public sealed class DictationPipeline(
                 run.Done(Stage.Rewrite, StageStatus.Ok);
             }
         }
+        // Paste automatically off: the result is copied for the user to paste. The run's Done card says "Copied", so
+        // the copy itself stays quiet; while history is paused the copy also stays out of Win+V history.
+        var manual = !s.AutoPaste && !preview && deliveryIntent == DeliveryIntent.Paste;
+        if (manual)
+        {
+            deliveryIntent = DeliveryIntent.ClipboardOnly;
+            quiet = true;
+        }
         // A cancel that lands as the rewrite finishes must still stop the paste.
         if (ct.IsCancellationRequested) return Cancelled(run, Stage.Output);
         run.Output = text;
@@ -472,8 +484,8 @@ public sealed class DictationPipeline(
         DeliveryKind delivery;
         try
         {
-            var preview = !run.ClipboardOnly && (intent.PreviewRequested || settings().PreviewsAlways(run.Mode));
-            delivery = await output.DeliverAsync(new OutputItem(text, deliveryIntent, preview, run.Mode, run.Id, quiet), ct);
+            delivery = await output.DeliverAsync(new OutputItem(text, deliveryIntent, preview, run.Mode, run.Id, quiet,
+                KeepOutOfClipboardHistory: manual && (run.HistoryPaused || s.HistoryPaused)), ct);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {

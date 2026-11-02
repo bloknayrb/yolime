@@ -164,7 +164,8 @@ internal sealed class AppHost : IDisposable
         {
             _recording = recording;
             RefreshTray();
-            if (recording) WarnIfElevatedOnce();
+            // With Paste automatically off nothing is pasted anyway, so an admin window needs no warning.
+            if (recording && Settings.Current.AutoPaste) WarnIfElevatedOnce();
         };
         coordinator.NoticeShown += notice =>
         {

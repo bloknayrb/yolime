@@ -56,6 +56,16 @@ public sealed class RerunTests : IDisposable
         Assert.Equal(result.RunId, item.RunId);
     }
 
+    [Fact]
+    public async Task AReRun_WithPasteAutomaticallyOff_IsStillACopy_WithNoPreview()
+    {
+        _rig.Settings = _rig.Settings with { AutoPaste = false, PreviewModes = ["Raw"] };
+        await _rig.Build().RerunAsync(Source(), Mode.Raw, null, CancellationToken.None);
+        var item = Assert.Single(_rig.Sink.Delivered);
+        Assert.Equal(DeliveryIntent.ClipboardOnly, item.Intent);
+        Assert.False(item.PreviewRequested);
+    }
+
     [Theory]
     [InlineData(Mode.Raw, false)]
     [InlineData(Mode.Dictate, false)]

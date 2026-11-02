@@ -79,6 +79,12 @@ public sealed record YolimeSettings
     /// <summary>While on, runs keep no history row and no recording: nothing to retry or paste later.</summary>
     public bool HistoryPaused { get; set; }
 
+    /// <summary>
+    /// Paste each result at the cursor. Off: results are only copied, and the user pastes them. Insert on the preview
+    /// card, Paste last result and History's Re-insert still paste: each is an explicit request.
+    /// </summary>
+    public bool AutoPaste { get; set; } = true;
+
     /// <summary>The first-run wizard was finished or skipped.</summary>
     public bool FirstRunDone { get; set; }
 
