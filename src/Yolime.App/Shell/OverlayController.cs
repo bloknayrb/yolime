@@ -22,7 +22,7 @@ namespace Yolime.App.Shell;
 /// </summary>
 internal sealed partial class OverlayController : INoticeSink, IDisposable
 {
-    private const double MaxWidthDip = 560;
+    private const double MaxWidthDip = OverlayGeometry.MaxWidthDip;
 
     private readonly DispatcherQueue _ui;
     private readonly DispatcherQueueTimer _timer;
@@ -33,15 +33,20 @@ internal sealed partial class OverlayController : INoticeSink, IDisposable
     private readonly OverlayWindow _notch;
     private readonly OverlayWindow _pill;
 
-    private readonly Border _root = new() { CornerRadius = new CornerRadius(12), Padding = new Thickness(16, 10, 16, 10), BorderThickness = new Thickness(1) };
-    private readonly FontIcon _icon = new() { FontSize = 16, Margin = new Thickness(0, 0, 10, 0) };
-    private readonly TextBlock _title = new() { FontSize = 14, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap };
+    private readonly Border _root = new()
+    {
+        CornerRadius = new CornerRadius(OverlayGeometry.CornerRadiusDip),
+        Padding = new Thickness(OverlayGeometry.PaddingH, OverlayGeometry.PaddingV, OverlayGeometry.PaddingH, OverlayGeometry.PaddingV),
+        BorderThickness = new Thickness(OverlayGeometry.Border),
+    };
+    private readonly FontIcon _icon = new() { FontSize = 16, Margin = new Thickness(0, 0, 12, 0) };
+    private readonly TextBlock _title = new() { FontSize = 14, FontWeight = Microsoft.UI.Text.FontWeights.Medium, TextWrapping = TextWrapping.Wrap, LineHeight = 21 };
     private readonly TextBlock _elapsed = new() { FontSize = 12, Margin = new Thickness(12, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
-    private readonly TextBlock _detail = new() { FontSize = 12, TextWrapping = TextWrapping.Wrap, MaxLines = 2, TextTrimming = TextTrimming.CharacterEllipsis };
-    private readonly ProgressBar _level = new() { Height = 3, Minimum = 0, Maximum = 1, Margin = new Thickness(0, 6, 0, 0) };
+    private readonly TextBlock _detail = new() { FontSize = 12, LineHeight = 18, TextWrapping = TextWrapping.Wrap, MaxLines = 2, TextTrimming = TextTrimming.CharacterEllipsis };
+    private readonly LevelMeter _level = new() { Margin = new Thickness(0, 8, 0, 0) };
     private readonly ScrollViewer _previewScroll = new() { MaxHeight = 260, Margin = new Thickness(0, 6, 0, 0) };
-    private readonly TextBlock _previewText = new() { FontSize = 13, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = false };
-    private readonly StackPanel _buttons = new() { Orientation = Orientation.Horizontal, Spacing = 8, Margin = new Thickness(0, 8, 0, 0) };
+    private readonly TextBlock _previewText = new() { FontSize = 13, LineHeight = 20, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = false };
+    private readonly StackPanel _buttons = new() { Orientation = Orientation.Horizontal, Spacing = 8, Margin = new Thickness(0, 10, 0, 0) };
     // Narrator reads this, not the visible text: a peer for an element that only exists to announce.
     // Narration goes out as a notification event with its own text, so this block needs no size. Width matters: it is
     // laid out in the card, and Render measures before Announce sets the new text, so an unbounded width sized each card
@@ -75,7 +80,7 @@ internal sealed partial class OverlayController : INoticeSink, IDisposable
         _previewScroll.Content = _previewText;
         AutomationProperties.SetLiveSetting(_narrator, AutomationLiveSetting.Polite);
 
-        _stack = new StackPanel { MaxWidth = MaxWidthDip - 34, MinWidth = 220 };
+        _stack = new StackPanel { MaxWidth = OverlayGeometry.StackWidth, MinWidth = 220 };
         foreach (var child in new UIElement[] { header, _detail, _level, _previewScroll, _buttons, _narrator }) _stack.Children.Add(child);
         _root.Child = _stack;
         _root.PointerEntered += (_, _) => Pointer(true);
@@ -83,7 +88,7 @@ internal sealed partial class OverlayController : INoticeSink, IDisposable
 
         // It copies the raw transcript; "Use raw" read as replacing the paste.
         _pillButton = Button("Copy raw", () => { if (_shown.HistoryId is { } id) UseRaw?.Invoke(id); Post(new UserTyped()); });
-        var pillRoot = new Border { CornerRadius = new CornerRadius(12), Padding = new Thickness(6), Child = _pillButton };
+        var pillRoot = new Border { CornerRadius = new CornerRadius(OverlayGeometry.CornerRadiusDip), Padding = new Thickness(6), Child = _pillButton };
         RefreshLabels();
 
         _notch = new OverlayWindow("yolime-overlay", _root, clickThrough: true);
@@ -243,7 +248,10 @@ internal sealed partial class OverlayController : INoticeSink, IDisposable
             (_title.MaxLines, _title.TextTrimming) = view.State == OverlayState.Error ? (2, TextTrimming.CharacterEllipsis) : (0, TextTrimming.None);
             _detail.MaxLines = view.State == OverlayState.Error ? 3 : 2;
             // Listening and Working keep the full width, so a context line arriving mid-recording doesn't resize the card.
-            _stack.MinWidth = view.FixedWidth ? MaxWidthDip - 34 : 220;
+            _stack.MinWidth = view.FixedWidth ? OverlayGeometry.StackWidth : 220;
+            // A new kind of card fades in a little from where it was (never on ticks, countdowns or new detail lines).
+            // The window itself resizes at once, so this softens the swap without delaying what it says.
+            if (previous.State != view.State && previous.State != OverlayState.Hidden && _uiSettings.AnimationsEnabled) FadeIn();
             _notch.SetClickThrough(!view.Clickable);
             // Re-measure whenever the shape may have changed; position is chosen fresh on each show.
             _notch.Show(_settings().OverlayPosition == OverlayPosition.BottomCentre, MaxWidthDip);
@@ -257,6 +265,22 @@ internal sealed partial class OverlayController : INoticeSink, IDisposable
 
         if (view.State == OverlayState.Hidden) _timer.Stop();
         else if (!_timer.IsRunning) _timer.Start();
+    }
+
+    private void FadeIn()
+    {
+        var fade = new Microsoft.UI.Xaml.Media.Animation.DoubleAnimation
+        {
+            From = 0.4,
+            To = 1,
+            Duration = new Duration(TimeSpan.FromMilliseconds(200)),
+            EasingFunction = new Microsoft.UI.Xaml.Media.Animation.CubicEase { EasingMode = Microsoft.UI.Xaml.Media.Animation.EasingMode.EaseOut },
+        };
+        Microsoft.UI.Xaml.Media.Animation.Storyboard.SetTarget(fade, _stack);
+        Microsoft.UI.Xaml.Media.Animation.Storyboard.SetTargetProperty(fade, "Opacity");
+        var board = new Microsoft.UI.Xaml.Media.Animation.Storyboard();
+        board.Children.Add(fade);
+        board.Begin();
     }
 
     private (int, int, int, int) PillAnchor()
@@ -378,26 +402,34 @@ internal sealed partial class OverlayController : INoticeSink, IDisposable
     /// <summary>Light, dark and high contrast. High contrast uses the system's own colours, with a visible border.</summary>
     private void ApplyTheme(Border root)
     {
-        Windows.UI.Color bg, fg, edge;
+        Windows.UI.Color bg, fg, muted, edge;
         if (new Windows.UI.ViewManagement.AccessibilitySettings().HighContrast)
         {
             bg = _uiSettings.UIElementColor(UIElementType.Window);
             fg = _uiSettings.UIElementColor(UIElementType.WindowText);
+            // In high contrast nothing is muted, and the card keeps a visible Highlight border.
+            muted = fg;
             edge = _uiSettings.UIElementColor(UIElementType.Highlight);
         }
         else
         {
             var systemBg = _uiSettings.GetColorValue(UIColorType.Background);
             var dark = systemBg.R + systemBg.G + systemBg.B < 384;
-            bg = dark ? Windows.UI.Color.FromArgb(255, 32, 32, 32) : Windows.UI.Color.FromArgb(255, 249, 249, 249);
-            fg = dark ? Windows.UI.Color.FromArgb(255, 255, 255, 255) : Windows.UI.Color.FromArgb(255, 26, 26, 26);
-            edge = dark ? Windows.UI.Color.FromArgb(255, 64, 64, 64) : Windows.UI.Color.FromArgb(255, 220, 220, 220);
+            var tokens = Yolime.Core.Design.Palette.For(dark);
+            bg = ThemeColors.Color(tokens.NotchBackground);
+            fg = ThemeColors.Color(tokens.Text);
+            muted = ThemeColors.Color(tokens.TextMuted);
+            // No visible border: one painted the surface colour keeps the layout identical to high contrast's, and
+            // the 1-bit corner region can't chew a line that isn't there.
+            edge = bg;
             root.RequestedTheme = dark ? ElementTheme.Dark : ElementTheme.Light;
         }
         root.Background = new SolidColorBrush(bg);
         root.BorderBrush = new SolidColorBrush(edge);
         var text = new SolidColorBrush(fg);
-        foreach (var tb in new[] { _title, _elapsed, _detail, _previewText }) tb.Foreground = text;
+        var quiet = new SolidColorBrush(muted);
+        foreach (var tb in new[] { _title, _previewText }) tb.Foreground = text;
+        foreach (var tb in new[] { _elapsed, _detail }) tb.Foreground = quiet;
         _icon.Foreground = text;
 #if YOLIME_E2E
         var chose = (new Windows.UI.ViewManagement.AccessibilitySettings().HighContrast ? "contrast"

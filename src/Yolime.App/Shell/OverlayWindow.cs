@@ -133,8 +133,9 @@ internal sealed partial class OverlayWindow : IDisposable
         }
         SetWindowPos(Hwnd, -1, x, y, w, h, SwpNoActivate); // HWND_TOPMOST
         // Rounded corners: a layered window at a single alpha has no per-pixel transparency, so clip the window.
-        var radius = (int)(24 * scale);
-        SetWindowRgn(Hwnd, CreateRoundRectRgn(0, 0, w + 1, h + 1, radius, radius), true);
+        // The region excludes its right and bottom edges, hence w + 1 and h + 1.
+        var diameter = Yolime.Core.Overlay.OverlayGeometry.RegionDiameterPx(scale);
+        SetWindowRgn(Hwnd, CreateRoundRectRgn(0, 0, w + 1, h + 1, diameter, diameter), true);
         _island.SiteBridge.MoveAndResize(new Windows.Graphics.RectInt32(0, 0, w, h));
         _island.SiteBridge.Show();
         ShowWindow(Hwnd, SwShowNoActivate);
