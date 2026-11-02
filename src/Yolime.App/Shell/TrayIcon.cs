@@ -267,8 +267,9 @@ internal sealed partial class TrayIcon : INoticeSink, ISounds, IDisposable
                 if (wParam != 0) EndingSession?.Invoke();
                 return 0;
             // The taskbar's theme ("ImmersiveColorSet"), high contrast, or the display's DPI changed: redraw at the new size and colours.
-            case WmSettingChange when lParam != 0 && Marshal.PtrToStringUni(lParam) == "ImmersiveColorSet":
             case WmSettingChange when wParam == 0x0043: // SPI_SETHIGHCONTRAST
+            // The theme change arrives with wParam 0 and the area's name in lParam; read it only then.
+            case WmSettingChange when wParam == 0 && lParam != 0 && Marshal.PtrToStringUni(lParam) == "ImmersiveColorSet":
             case WmDpiChanged:
             case WmDisplayChange:
                 ReloadIcons(update: true);

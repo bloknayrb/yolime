@@ -20,7 +20,7 @@ LIME = (0x8B, 0xC3, 0x4A, 255)
 BARS = (0x1F, 0x39, 0x06, 255)
 
 APP_SIZES = [16, 20, 24, 30, 32, 36, 40, 48, 64, 256]
-TRAY_SIZES = [16, 20, 24, 32, 40]
+TRAY_SIZES = [16, 20, 24, 28, 32, 36, 40, 48]  # 100% to 300% scale
 
 # Tray colours per taskbar variant (the Tray board). The app picks "dark" whenever Windows' taskbar is dark,
 # including an accent-coloured one (Windows 11 colours the taskbar only in dark mode).
@@ -159,7 +159,6 @@ def write_ico(path, images):
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
     write_ico(OUT / "yolime.ico", [app_icon(s) for s in APP_SIZES])
-    app_icon(256).save(OUT / "yolime-256.png")
     for variant in TRAY:
         for state in ("idle", "recording", "paused", "setup", "elevated"):
             write_ico(OUT / f"tray-{state}-{variant}.ico", [tray_icon(state, variant, s) for s in TRAY_SIZES])

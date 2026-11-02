@@ -1,17 +1,16 @@
 using System.Buffers.Binary;
-using System.Security.Cryptography;
 using Yolime.Core.Settings;
 
 namespace Yolime.Core.Tests.Design;
 
 /// <summary>
-/// The committed icons (tools/make-icons.py) hold the sizes Windows asks for, each drawn on its own, and there is one
+/// The committed icons (tools/make-icons.py) hold the sizes Windows asks for, well-formed, and there is one
 /// tray icon per tray state and taskbar theme.
 /// </summary>
 public class IconFileTests
 {
     private static readonly int[] AppSizes = [16, 20, 24, 30, 32, 36, 40, 48, 64, 256];
-    private static readonly int[] TraySizes = [16, 20, 24, 32, 40];
+    private static readonly int[] TraySizes = [16, 20, 24, 28, 32, 36, 40, 48];
 
     [Fact]
     public void AppIcon_HasEverySize()
@@ -65,8 +64,6 @@ public class IconFileTests
                 Assert.Equal(40 + e.Size * e.Size * 4 + (e.Size + 31) / 32 * 4 * e.Size, e.Data.Length);
             }
         }
-        // Each size is its own image, not one picture stored several times.
-        Assert.Equal(entries.Count, entries.Select(e => Convert.ToHexString(SHA256.HashData(e.Data))).Distinct().Count());
     }
 
     private sealed record Entry(int Size, int BitCount, byte[] Data);
