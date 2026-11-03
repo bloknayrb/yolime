@@ -56,17 +56,19 @@ internal static class TitleBar
         var hasIcon = File.Exists(iconPath);
         if (hasIcon)
         {
-            var source = new BitmapImage(new Uri(iconPath));
+            // Decoded at 32 px, set before the source so it applies: crisp up to 200%, scaled down below that.
+            var source = new BitmapImage { DecodePixelWidth = 32, UriSource = new Uri(iconPath) };
             var icon = new Image { Width = 16, Height = 16, Margin = new Thickness(12, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center, Source = source };
-            // Decode the frame for the actual pixel size, or the .ico's choice can look soft at 150-200%.
-            icon.Loaded += (_, _) => source.DecodePixelWidth = (int)Math.Round(16 * (icon.XamlRoot?.RasterizationScale ?? 1));
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetAccessibilityView(icon, Microsoft.UI.Xaml.Automation.Peers.AccessibilityView.Raw);
             bar.Children.Add(icon);
         }
         title.Margin = new Thickness(hasIcon ? 8 : 12, 0, 0, 0);
         Grid.SetColumn(title, 1);
         bar.Children.Add(title);
-        // The window's own name already says this; Narrator needn't read the bar too.
+        // The window's own name already says this; Narrator needn't read the bar too (Raw on each element: a
+        // container's Raw doesn't hide its children from the content view).
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetAccessibilityView(bar, Microsoft.UI.Xaml.Automation.Peers.AccessibilityView.Raw);
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetAccessibilityView(title, Microsoft.UI.Xaml.Automation.Peers.AccessibilityView.Raw);
 
         var root = new Grid();
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
