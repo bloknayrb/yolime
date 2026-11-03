@@ -79,6 +79,8 @@ internal sealed class SettingsWindow : Window
         _nav.PaneDisplayMode = NavigationViewPaneDisplayMode.Left;
         _nav.IsPaneToggleButtonVisible = false;
         _nav.OpenPaneLength = 220;
+        // It sits below yolime's own title bar (TitleBar), so it mustn't pad itself for one.
+        _nav.IsTitleBarAutoPaddingEnabled = false;
         _nav.SelectionChanged += (_, e) =>
         {
             if (e.SelectedItem is NavigationViewItem { Tag: string tag }) Show(tag);
@@ -91,7 +93,7 @@ internal sealed class SettingsWindow : Window
         Grid.SetRow(scroll, 1);
         body.Children.Add(scroll);
         _nav.Content = body;
-        Content = _nav;
+        TitleBar.Install(this, _nav);
 
         WindowSizing.SizeAndCentre(this, 980, 760);
         // Save results and errors are read out by Narrator as they appear.

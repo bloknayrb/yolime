@@ -79,6 +79,16 @@ internal static partial class Tour
                     app = null;
                 }
             }
+            if (areas.Contains("windows"))
+            {
+                // Windows light, apps dark: the mismatch the system title bar got wrong.
+                SetTheme(apps: 0, system: 1);
+                app = Launch(@"C:\tourdata-mixed", Path.Combine(Results, "app-mixed"), firstRun: false);
+                if (app is null) Fail("mixed: launch", "the app never became ready");
+                else MixedThemeTitleBar(form);
+                Stop(app);
+                app = null;
+            }
             LightDarkDiffer();
         }
         catch (Exception ex)
@@ -274,6 +284,48 @@ internal static partial class Tour
                 Thread.Sleep(800);
                 CaptureWindow(form, window, "windows", "settings-" + page, theme);
             }
+        }
+        finally { CloseQuietly(window!); }
+    }
+
+    /// <summary>
+    /// Bryan's setup when 0.3.0 showed white title bars on dark windows: Windows in light mode, apps in dark. yolime
+    /// draws its own bar (TitleBar), so the bar must match the dark window, not the light system: in Settings, a point
+    /// in the bar to the right of the title must look like the nav pane straight below it (both are the tinted Mica),
+    /// and be dark.
+    /// </summary>
+    private static void MixedThemeTitleBar(TargetForm form)
+    {
+        const string label = "windows/title-bar-system-light-apps-dark";
+        using var automation = new UIA3Automation();
+        if (!TrayCommand(6)) { Fail(label, "no tray window"); return; }
+        AutomationElement? window = null;
+        if (!Program.Wait(() => (window = automation.GetDesktop().FindFirstChild(cf => cf.ByName("yolime settings"))) is not null, 8000))
+        {
+            Fail(label, "Settings never opened");
+            return;
+        }
+        try
+        {
+            form.On(() => form.WindowState = FormWindowState.Minimized);
+            var hwnd = window!.Properties.NativeWindowHandle.ValueOrDefault;
+            SetForegroundWindow(hwnd);
+            Thread.Sleep(1200);
+            var old = SetThreadDpiAwarenessContext(-4);
+            Rect r;
+            try { if (DwmGetWindowAttribute(hwnd, 9, out r, Marshal.SizeOf<Rect>()) != 0) { Fail(label, "no frame bounds"); return; } }
+            finally { SetThreadDpiAwarenessContext(old); }
+            using var image = Overlay.Grab(r.Left, r.Top, r.Right - r.Left, r.Bottom - r.Top);
+            image.Save(Path.Combine(Dir("windows"), "settings-system-light-apps-dark.png"), ImageFormat.Png);
+            // Settings opens 980 DIP wide (WindowSizing), so the image width gives the scale.
+            var scale = image.Width / 980.0;
+            var x = (int)(200 * scale);
+            var inBar = image.GetPixel(x, (int)(16 * scale));
+            var inPane = image.GetPixel(x, (int)(72 * scale));
+            var gap = Math.Abs(inBar.R - inPane.R) + Math.Abs(inBar.G - inPane.G) + Math.Abs(inBar.B - inPane.B);
+            var dark = (inBar.R + inBar.G + inBar.B) / 3 < 100;
+            var ok = gap <= 30 && dark;
+            Report.Add(new { name = label, pass = ok, failure = ok ? null : $"bar {inBar.R},{inBar.G},{inBar.B} vs pane {inPane.R},{inPane.G},{inPane.B}: the title bar doesn't match the dark window" });
         }
         finally { CloseQuietly(window!); }
     }
@@ -567,11 +619,13 @@ internal static partial class Tour
         return (key.GetValue("AppsUseLightTheme"), key.GetValue("SystemUsesLightTheme"));
     }
 
-    private static void SetTheme(int light)
+    private static void SetTheme(int light) => SetTheme(light, light);
+
+    private static void SetTheme(int apps, int system)
     {
         using var key = Registry.CurrentUser.CreateSubKey(Personalize);
-        key.SetValue("AppsUseLightTheme", light, RegistryValueKind.DWord);
-        key.SetValue("SystemUsesLightTheme", light, RegistryValueKind.DWord);
+        key.SetValue("AppsUseLightTheme", apps, RegistryValueKind.DWord);
+        key.SetValue("SystemUsesLightTheme", system, RegistryValueKind.DWord);
     }
 
     private static void RestoreTheme((object? Apps, object? System) original)
