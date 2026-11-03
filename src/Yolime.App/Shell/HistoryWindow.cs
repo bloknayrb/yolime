@@ -143,7 +143,7 @@ internal sealed partial class HistoryWindow : Window
         root.Children.Add(left);
         Grid.SetColumn(layer, 1);
         root.Children.Add(layer);
-        Content = root;
+        TitleBar.Install(this, root);
         Keys(root);
 
         WindowSizing.SizeAndCentre(this, 1040, 720);

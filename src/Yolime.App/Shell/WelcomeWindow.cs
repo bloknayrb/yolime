@@ -71,7 +71,7 @@ internal sealed class WelcomeWindow : Window
         root.Children.Add(scroll);
         Grid.SetRow(buttons, 2);
         root.Children.Add(buttons);
-        Content = root;
+        TitleBar.Install(this, root);
 
         WindowSizing.SizeAndCentre(this, 720, 620);
         Activated += (_, e) =>

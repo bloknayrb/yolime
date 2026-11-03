@@ -47,7 +47,9 @@ internal sealed class UpdateWindow : Window
         root.Children.Add(_status);
         root.Children.Add(_progress);
         root.Children.Add(buttons);
-        Content = root;
+        TitleBar.Install(this, root);
+        // A small dialog: double-clicking its title bar mustn't maximise it, and it has nothing to resize.
+        if (AppWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter presenter) (presenter.IsMaximizable, presenter.IsResizable) = (false, false);
 
         WindowSizing.SizeAndCentre(this, 500, 280);
         updater.StateChanged += OnState;
