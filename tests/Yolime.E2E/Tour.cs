@@ -291,7 +291,7 @@ internal static partial class Tour
     /// <summary>
     /// Bryan's setup when 0.3.0 showed white title bars on dark windows: Windows in light mode, apps in dark. yolime
     /// draws its own bar (TitleBar), so the bar must match the dark window, not the light system: in Settings, a point
-    /// in the bar to the right of the title must look like the nav pane straight below it (both are the tinted Mica),
+    /// in the bar to the right of the title must look like the empty nav pane below it (both are the tinted Mica),
     /// and be dark.
     /// </summary>
     private static void MixedThemeTitleBar(TargetForm form)
@@ -321,7 +321,8 @@ internal static partial class Tour
             var scale = image.Width / 980.0;
             var x = (int)(200 * scale);
             var inBar = image.GetPixel(x, (int)(16 * scale));
-            var inPane = image.GetPixel(x, (int)(72 * scale));
+            // Empty pane below the nav items (General, the selected one, is lighter and sits right under the bar).
+            var inPane = image.GetPixel(x, (int)(320 * scale));
             var gap = Math.Abs(inBar.R - inPane.R) + Math.Abs(inBar.G - inPane.G) + Math.Abs(inBar.B - inPane.B);
             var dark = (inBar.R + inBar.G + inBar.B) / 3 < 100;
             var ok = gap <= 30 && dark;
