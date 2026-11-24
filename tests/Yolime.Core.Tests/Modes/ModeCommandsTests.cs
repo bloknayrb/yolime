@@ -42,7 +42,8 @@ public class ModeCommandsTests
     [InlineData("Um, write a reply. Thanks", Mode.Reply, "Thanks")]
     [InlineData("Okay. Write a prompt: fix it", Mode.Prompt, "Fix it")]
     [InlineData("So, write a prompt to fix it", Mode.Prompt, "To fix it")]
-    [InlineData("  \"Write a prompt.\" fix it", Mode.Prompt, "\" fix it")]
+    [InlineData("  \"Write a prompt.\" fix it", Mode.Prompt, "Fix it")]
+    [InlineData("\u201cWrite a reply:\u201d sounds good", Mode.Reply, "Sounds good")]
     [InlineData(" Write a reply. Thanks", Mode.Reply, "Thanks")]
     [InlineData("Write  a\tprompt. Fix it", Mode.Prompt, "Fix it")]
     public void Fillers_LeadingQuotesAndOddWhitespace(string transcript, Mode mode, string rest)

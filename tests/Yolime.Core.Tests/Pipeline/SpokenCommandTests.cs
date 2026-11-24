@@ -235,4 +235,28 @@ public sealed class SpokenCommandTests : IDisposable
         Assert.Equal(Mode.Raw, result.Mode);
         Assert.Equal("Write a reply. Sounds good.", Assert.Single(_rig.Sink.Delivered).Text);
     }
+
+    [Fact]
+    public async Task Retry_InTheCommandsOwnMode_WithNothingAfterIt_IsCommandOnly()
+    {
+        _rig.Stt.Throw = new SttException(SttError.Network);
+        var failed = await Run("x");
+        _rig.Stt.Throw = null;
+        _rig.Stt.Text = "Raw.";
+
+        var retried = await _rig.Build().RetryAsync(failed.HistoryId!.Value, Mode.Raw, null, CancellationToken.None);
+        Assert.Equal(RunOutcome.CommandOnly, retried.Outcome);
+        Assert.Empty(_rig.Sink.Delivered); // never an empty paste
+    }
+
+    [Fact]
+    public async Task RewritingFromTheTranscript_SaysWhichMode()
+    {
+        _rig.Rewriter = new FakeRewriter(_ => [], RewriteFailure.Server);
+        var result = await Run("Write a reply. Sounds good.", "Lunch Friday?");
+        _rig.Rewriter = _rewriter;
+        var progress = new ListProgress();
+        await _rig.Build().RunFromTranscriptAsync(result.HistoryId!.Value, progress, CancellationToken.None);
+        Assert.Contains(new ModeResolved(Mode.Reply, Spoken: false), progress.Events);
+    }
 }

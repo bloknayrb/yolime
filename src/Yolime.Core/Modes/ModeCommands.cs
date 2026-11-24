@@ -50,7 +50,9 @@ public static class ModeCommands
     /// <summary>What may follow a one-word command. Never a comma.</summary>
     private const string WordEnders = ".:!?…–—";
 
-    private const string LeadingSkip = "\"'“”‘’…";
+    private const string Quotes = "\"'“”‘’";
+
+    private const string LeadingSkip = Quotes + "…";
 
     /// <summary>The phrase help text and notices use for a mode.</summary>
     public static string Example(Mode mode) => mode switch
@@ -66,14 +68,16 @@ public static class ModeCommands
     {
         if (string.IsNullOrEmpty(transcript)) return null;
         var start = SkipLeading(transcript, 0);
+        // A quoted command ("Write a prompt." fix it) also loses its closing quote.
+        var quoted = transcript.AsSpan(0, start).IndexOfAny(Quotes) >= 0;
 
         foreach (var (phrase, mode) in Phrases)
             if (MatchPhrase(transcript, start, phrase, PhraseEnders, allowEnd: true) is { } end)
-                return new CommandMatch(mode, SkipSeparators(transcript, end));
+                return new CommandMatch(mode, SkipSeparators(transcript, end, quoted));
 
         foreach (var (word, mode) in Words)
             if (MatchPhrase(transcript, start, word, WordEnders, allowEnd: true) is { } end)
-                return new CommandMatch(mode, SkipSeparators(transcript, end));
+                return new CommandMatch(mode, SkipSeparators(transcript, end, quoted));
 
         foreach (var filler in Fillers)
         {
@@ -82,7 +86,7 @@ public static class ModeCommands
             var next = SkipWhitespace(transcript, afterFiller + 1);
             foreach (var (phrase, mode) in Phrases)
                 if (MatchPhrase(transcript, next, phrase, PhraseEnders, allowEnd: true) is { } end)
-                    return new CommandMatch(mode, SkipSeparators(transcript, end));
+                    return new CommandMatch(mode, SkipSeparators(transcript, end, quoted));
         }
         return null;
     }
@@ -122,9 +126,9 @@ public static class ModeCommands
         return i;
     }
 
-    private static int SkipSeparators(string s, int i)
+    private static int SkipSeparators(string s, int i, bool quoted)
     {
-        while (i < s.Length && (char.IsWhiteSpace(s[i]) || Separators.Contains(s[i]))) i++;
+        while (i < s.Length && (char.IsWhiteSpace(s[i]) || Separators.Contains(s[i]) || (quoted && Quotes.Contains(s[i])))) i++;
         return i;
     }
 

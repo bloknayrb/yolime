@@ -151,6 +151,7 @@ public sealed class DictationPipeline(
                 run.TryHistory(() => history.Update(historyId, r => r with { Outcome = RunOutcome.InProgress }));
                 run.MarkAudioEnd();
                 run.Done(Stage.Stt, StageStatus.Skipped);
+                run.Report(new ModeResolved(run.Mode, Spoken: false));
                 return await RewriteAndDeliverAsync(run, raw, new RunIntent(run.Mode, false), RowContext(row), RowProfile(row), ct);
             }
             catch (Exception ex) when (!(ex is OperationCanceledException && ct.IsCancellationRequested))
@@ -199,6 +200,7 @@ public sealed class DictationPipeline(
             {
                 run.MarkAudioEnd();
                 run.Done(Stage.Stt, StageStatus.Skipped);
+                run.Report(new ModeResolved(asMode, Spoken: false));
                 var context = usesContext ? RowContext(source) : null;
                 return await RewriteAndDeliverAsync(run, raw, new RunIntent(asMode, false), context, RowProfile(source), ct);
             }
@@ -439,6 +441,7 @@ public sealed class DictationPipeline(
         // command can be re-run as Dictate; the mode works on the words after the command.
         var content = raw;
         var spoken = false;
+        var stripped = false;
         if (commands != Commands.Keep && ModeCommands.Match(raw) is { } command)
         {
             if (commands == Commands.Detect)
@@ -447,7 +450,11 @@ public sealed class DictationPipeline(
                 run.RefreshCurrent();
                 spoken = true;
             }
-            if (command.Mode == run.Mode) content = ModeCommands.Strip(raw, command);
+            if (command.Mode == run.Mode)
+            {
+                content = ModeCommands.Strip(raw, command);
+                stripped = true;
+            }
         }
         run.RawText = content;
         run.Report(new TranscriptReady(content));
@@ -457,7 +464,8 @@ public sealed class DictationPipeline(
         run.TryHistory(() => history.Update(run.HistoryId!.Value, r => r with { RawText = raw, SttError = null, Mode = run.Mode }));
 
         var known = default(KnownContext);
-        if (spoken && content.Trim().Length == 0)
+        // Detected, or stripped by a retry in the command's own mode: either way only the command was said.
+        if (stripped && content.Trim().Length == 0)
         {
             // "Write a reply" alone drafts from the message it's replying to; with no message, or for any other
             // command, there's nothing to work on, and a retry would only match the command again.

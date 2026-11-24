@@ -438,6 +438,8 @@ internal sealed partial class Scenarios(TargetForm form)
 
     private string? Prepare(TextBox box)
     {
+        // A spoken transcript an earlier scenario set up but never used (its hold didn't reach STT) mustn't leak in.
+        File.Delete(Path.Combine(AppResults, "next-transcript"));
         form.Reset();
         SetClip(Sentinel);
         // Let any restore from the previous scenario finish before this one starts.
