@@ -289,7 +289,7 @@ internal sealed class WelcomeWindow : Window
     {
         var key = HoldKeyRules.Name(_host.Settings.Current.HoldKeyVk);
         Heading("Try it");
-        Text($"Click in the box, hold {key}, say a sentence, and let go. Tap Shift while holding to change mode, or keep it held as you let go to preview first.");
+        Text($"Click in the box, hold {key}, say a sentence, and let go. Start with \u201cwrite a prompt\u201d, \u201cwrite a reply\u201d or \u201craw\u201d to change what yolime writes, and keep Shift held as you let go to preview first.");
         var box = new TextBox { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, Height = 160, PlaceholderText = "Your words land here" };
         _body.Children.Add(box);
         // The one yolime window dictation may paste into.

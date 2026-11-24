@@ -117,17 +117,32 @@ off). The hold key can be Right Ctrl, Right Shift or Pause (Settings > General).
   again to finish. Other keys and clicks don't stop it (you can keep working), and Esc cancels only while you hold
   the key. Switching to another app sends what you've said so far, to the clipboard.
 
-**Modes.** Tap **Shift** while holding to cycle: Dictate, Prompt, Reply, Raw. With sounds on, each mode has its own
-cue (one to four beeps).
+**Modes.** Every hold is **Dictate**. To get something else, start the hold with a spoken command; the rest of
+what you say is what the mode works on. Commands count only at the very start, and only in English.
 
-- **Dictate:** clean dictation. Short dictations skip Claude; longer ones get punctuation and filler removed.
-- **Prompt:** turns rambling speech into a structured prompt for an AI tool. **Code editors and terminals start in
-  Prompt**; per-app starting modes are in Settings (process names as Task Manager's Details tab shows them; `.exe`
-  optional).
-- **Reply:** drafts a reply to the text you've selected, or to what you copied in the last 2 minutes. Copies that
-  look like passwords or tokens are skipped. If you selected the message somewhere you can't type (a reading pane),
-  it waits up to 10 seconds for you to click where the reply should go.
-- **Raw:** the transcript as heard.
+- **Dictate** (no command): clean dictation. Short dictations skip Claude; longer ones get punctuation and filler
+  removed.
+- **Prompt**: "write a prompt", "write me a prompt", "make this a prompt", "make a prompt", "prompt mode", or
+  "prompt" then a pause ("Prompt. Fix the login bug"). Turns rambling speech into a structured prompt for an AI tool,
+  with the text you selected (or copied in the last 2 minutes) attached below it, exactly as it was.
+- **Reply**: "write a reply", "write me a reply", "draft a reply", "write a response", "draft a response",
+  "reply mode", or "reply" then a pause. Drafts a reply to the text you've selected, or to what you copied in the last
+  2 minutes. Copies that look like passwords or tokens are skipped. "Write a reply" with nothing after it drafts a
+  brief reply from the message alone. If you selected the message somewhere you can't type (a reading pane), it waits
+  up to 10 seconds for you to click where the reply should go.
+- **Raw**: "raw" or "verbatim" then a pause, or "raw mode" / "verbatim mode". The rest of the transcript, as heard.
+
+A single word needs a full stop, colon or dash after it, so "Reply all is broken" and "Raw, unfiltered…" stay
+dictation. "Reply to this" and "respond" aren't commands, since they turn up in ordinary notes. With sounds on, a
+recognised command beeps before anything is pasted (two beeps for Prompt, three for Reply, four for Raw), and the
+notch says "Writing a prompt…" or "Writing a reply…". A command with nothing after it ("Write a prompt.") pastes
+nothing and says so. History keeps every word you said, command included: if a command was misheard, or missed,
+re-run the transcript in the mode you wanted from History. On a Bluetooth headset that starts slowly, wait for the
+start sound, or the first words ("write a") can be lost.
+
+Tapping **Shift** during a hold no longer changes the mode, and code editors and terminals no longer start in
+Prompt: say "write a prompt" there. Settings from an earlier version that chose starting modes are dropped, and
+yolime says so once.
 
 Style follows the app: casual in Slack and Teams, email in Outlook, code-aware in editors and terminals. These profiles
 are built in.
@@ -135,9 +150,10 @@ are built in.
 **The notch** at the top (or bottom) centre of the screen shows Listening, the mode, progress and errors. Error cards
 have Retry; a bare tap of the hold key retries too (not with double-tap on, where a tap may start hands-free). After
 a rewritten result is pasted or copied, a **Copy raw** pill is offered for 5 seconds (any key dismisses it): it copies the original
-transcript.
+transcript (without a spoken command).
 
-**Preview.** Hold **Shift** as you let go of the hold key, or tick "Always preview" for a mode in Settings. The
+**Preview.** Hold **Shift** as you let go of the hold key, or tick "Always preview" for a mode in Settings (for
+Prompt or Reply, that's a way to check a spoken command was heard before anything is inserted). The
 result shows on a card: **Enter** inserts, **Esc** discards, **C** copies, and Up, Down, Page Up and Page Down scroll.
 Any other key or click ends it, and so does 20 seconds.
 
@@ -215,6 +231,10 @@ back to the normal upload if the stream fails. Verified with `gpt-4o-transcribe`
   transcribed, but what was sent can't be recalled. A hold with no speech in it never starts the upload.
 - **The transcript** goes to Anthropic (Claude) for the rewrite, with your vocabulary, the app's style profile
   (casual, email, code, terminal or neutral; not the app's name) and, for Reply, the selected or copied text.
+- **Selected and copied text.** The selection in the app you're dictating into is read on every hold (the mode isn't
+  known until the transcript is in) and kept in memory only. It is used, sent and stored in history only when the
+  run turns out to be a Prompt or Reply. The clipboard is read only once a Prompt or Reply is recognised, never for
+  plain dictation.
 - **The update check** (installed copies only, while "Check for updates automatically" is on, or when you click
   Check now): once a day to `api.github.com` for the latest release and, when it's newer, its `SHA256SUMS.txt`; on
   Install, the setup. Both files come from `api.github.com` and then `release-assets.githubusercontent.com` (or
@@ -246,7 +266,8 @@ back to the normal upload if the stream fails. Verified with `gpt-4o-transcribe`
 - Reply in terminals and remote sessions is copied, not pasted.
 - The overlay sits at top or bottom centre only, never next to the cursor.
 - The per-app style profiles are built in and can't be edited.
-- One hold key for all modes: no Alt key, and no separate key per mode.
+- One hold key for all modes: no Alt key, and no separate key per mode. Modes are picked by spoken commands, in
+  English only, and only at the start of a hold.
 - A re-run from History can't be cancelled once started.
 - Windows clipboard history (Win+V) keeps copies of anything yolime puts on the clipboard, including History's Copy.
   With Paste automatically off that is every result, unless Pause history is on.

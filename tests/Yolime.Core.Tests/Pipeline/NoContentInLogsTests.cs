@@ -34,7 +34,7 @@ public sealed class NoContentInLogsTests : IDisposable
         public string? Get(string name) => name == SttEndpoint.CustomKeyName ? "SENTINEL_KEY" : null;
     }
 
-    private enum Reply { Ok, Unauthorized, Quota, Malformed, NetworkError, Hang }
+    private enum Reply { Ok, Unauthorized, Quota, Malformed, NetworkError, Hang, Command, CommandOnly }
 
     [Fact]
     public async Task Sentinels_NeverReachLogsOrTimings()
@@ -44,6 +44,8 @@ public sealed class NoContentInLogsTests : IDisposable
         var fake = new FakeHttpHandler(_ => reply switch
         {
             Reply.Ok => Json(HttpStatusCode.OK, """{"text":"SENTINEL_TRANSCRIPT words"}"""),
+            Reply.Command => Json(HttpStatusCode.OK, """{"text":"Write a reply. SENTINEL_TRANSCRIPT words"}"""),
+            Reply.CommandOnly => Json(HttpStatusCode.OK, """{"text":"Write a prompt."}"""),
             Reply.Unauthorized => Json(HttpStatusCode.Unauthorized, """{"error":{"message":"SENTINEL_BODY"}}"""),
             Reply.Quota => Json(HttpStatusCode.TooManyRequests, """{"error":{"code":"insufficient_quota","message":"SENTINEL_BODY"}}"""),
             Reply.Malformed => Json(HttpStatusCode.OK, "SENTINEL_BODY not json"),
@@ -106,6 +108,13 @@ public sealed class NoContentInLogsTests : IDisposable
         Assert.Equal(RunOutcome.NoSpeech, (await pipeline.RunAsync(Request(new FileAudioSource(Fixtures.Audio("noise-floor-5s.wav"))), CancellationToken.None)).Outcome);
         Assert.Equal(RunOutcome.Completed, (await pipeline.RetryAsync(failed.HistoryId!.Value, null, null, CancellationToken.None)).Outcome);
 
+        // A spoken command picks the mode: logged as a tag, never the words around it.
+        reply = Reply.Command;
+        var spoken = await pipeline.RunAsync(Request(mode: Mode.Dictate) with { DetectCommand = true }, CancellationToken.None);
+        Assert.Equal((RunOutcome.Completed, Mode.Reply), (spoken.Outcome, spoken.Mode));
+        reply = Reply.CommandOnly;
+        Assert.Equal(RunOutcome.CommandOnly, (await pipeline.RunAsync(Request(mode: Mode.Dictate) with { DetectCommand = true }, CancellationToken.None)).Outcome);
+
         var scanned = 0;
         foreach (var file in Directory.EnumerateFiles(_root.Dir, "*", SearchOption.AllDirectories))
         {
@@ -117,7 +126,8 @@ public sealed class NoContentInLogsTests : IDisposable
         }
         Assert.True(scanned >= 2, "expected both a log file and a timings file");
         Assert.NotEmpty(File.ReadAllText(Directory.GetFiles(_root.Paths.LogsDir, "yolime-*.log").Single()));
-        Assert.Equal(10, File.ReadAllLines(Directory.GetFiles(_root.Paths.LogsDir, "timings-*.jsonl").Single()).Length);
+        Assert.Equal(12, File.ReadAllLines(Directory.GetFiles(_root.Paths.LogsDir, "timings-*.jsonl").Single()).Length);
+        Assert.Contains("ModeCommand", File.ReadAllText(Directory.GetFiles(_root.Paths.LogsDir, "yolime-*.log").Single()));
     }
 
     [Fact]

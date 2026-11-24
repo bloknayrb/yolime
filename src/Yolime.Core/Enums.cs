@@ -20,6 +20,12 @@ public enum RunOutcome
     RewriteFailed,
     OutputFailed,
     Interrupted,
+
+    /// <summary>
+    /// A spoken command with nothing after it ("Write a prompt."), or a "Write a reply" with nothing to reply to.
+    /// Nothing was sent to Claude; the transcript stays in history but the run isn't retryable (it would match again).
+    /// </summary>
+    CommandOnly,
 }
 
 public enum SttProviderKind { OpenAi, Groq, Custom }

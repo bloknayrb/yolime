@@ -333,22 +333,22 @@ internal static partial class Tour
 
     private static void HistoryPage(TargetForm form, string results, string theme)
     {
-        // Four real runs first, so the rows are real: Dictate, Prompt (one Shift tap), Reply (two, with the fresh
-        // clipboard as context), Raw (three, then Enter on its preview).
+        // Four real runs first, so the rows are real: Dictate, then Prompt, Reply (with the fresh clipboard as context)
+        // and Raw (then Enter on its preview), each picked by a spoken command.
         form.On(() => form.WindowState = FormWindowState.Normal);
-        foreach (var (taps, name) in new[] { (0, "dictate"), (1, "prompt"), (2, "reply"), (3, "raw") })
+        foreach (var (say, name) in new[] { ("", "dictate"), ("Write a prompt. ", "prompt"), ("Write a reply. ", "reply"), ("Raw. ", "raw") })
         {
             form.Reset();
             form.On(() => Clipboard.SetDataObject("Can you send me the final Q3 numbers?", copy: true));
             Thread.Sleep(1200);
             if (!form.FocusBox(form.Box1)) { Fail($"windows/history-{theme}", $"{name}: couldn't focus the form"); return; }
             var runs = RunCount(results);
+            // The app's fake STT reads this once, for the next hold.
+            File.WriteAllText(Path.Combine(results, "next-transcript"), say + LongTranscript);
             Input.Down(Input.RCtrl);
-            Thread.Sleep(500);
-            for (var i = 0; i < taps; i++) { Input.Tap(Input.LShift); Thread.Sleep(150); }
-            Thread.Sleep(900);
+            Thread.Sleep(1400);
             Input.Up(Input.RCtrl);
-            if (taps == 3)
+            if (name == "raw")
             {
                 Thread.Sleep(2500);
                 Input.Tap(Input.Enter);

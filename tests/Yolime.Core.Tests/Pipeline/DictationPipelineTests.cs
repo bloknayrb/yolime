@@ -50,6 +50,7 @@ public sealed class DictationPipelineTests : IDisposable
             new StageFinished(Stage.Capture, StageStatus.Ok).ToString(),
             new StageStarted(Stage.Stt).ToString(),
             new TranscriptReady("hello world").ToString(),
+            new ModeResolved(Mode.Raw, Spoken: false).ToString(),
             new StageFinished(Stage.Stt, StageStatus.Ok).ToString(),
             new StageFinished(Stage.Rewrite, StageStatus.Skipped).ToString(),
             new StageStarted(Stage.Output).ToString(),

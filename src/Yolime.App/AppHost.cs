@@ -43,7 +43,6 @@ internal sealed class AppHost : IDisposable
     private readonly ITranscriptionSessionFactory _stt;
     private readonly IRewriter _rewriter;
     private readonly Microsoft.UI.Dispatching.DispatcherQueue _ui;
-    private volatile TargetSnapshot? _foreground;
     private volatile bool _recording;
     private volatile bool _micDenied;
     private volatile bool _micOpen;
@@ -112,7 +111,7 @@ internal sealed class AppHost : IDisposable
         var warmer = new ConnectionWarmer(HttpClients.Shared, time, _log,
             b => b == ConnectionWarmer.ClaudeHost ? _rewriter.CheckReady() == RewriterReadiness.Ready : _stt.CheckReady() == SttReadiness.Ready);
         HostPinningHandler.RequestCompleted += warmer.MarkUsed;
-        var machine = new HoldStateMachine(new HoldOptions(DoubleTapLatch: initial.DoubleTapLatch, ModeCycling: true));
+        var machine = new HoldStateMachine(new HoldOptions(DoubleTapLatch: initial.DoubleTapLatch));
         var mic = new WasapiDevice(_log, () => Settings.Current.MicDeviceId, time);
         // Once per session: an unplugged favourite shouldn't nag on every hold.
         var micFallbackShown = 0;
@@ -141,7 +140,7 @@ internal sealed class AppHost : IDisposable
             lastResult: LastResult, output: _executor,
             holdStarted: () => _ = Task.Run(() => warmer.WarmAsync(Settings.Current)));
         Coordinator = coordinator;
-        hooks = new HookThread(initial.HoldKeyVk, machine, () => StartingModes.For(ForegroundNow(), Settings.Current), coordinator.Handle, _log);
+        hooks = new HookThread(initial.HoldKeyVk, machine, coordinator.Handle, _log);
         _hooks = hooks;
         hooks.IsOnCard = _overlay.IsOnCard;
         hooks.UserKeyPressed += () => _overlay.Post(new Yolime.Core.Overlay.UserTyped());
@@ -151,7 +150,9 @@ internal sealed class AppHost : IDisposable
         _overlay.Retry += id => _ = Task.Run(() => coordinator.RetryAsync(id, CancellationToken.None));
         _overlay.UseRaw += id => _ = Task.Run(async () =>
         {
-            if (_history.Get(id)?.RawText is { } raw) await _executor.CopyForUserAsync(raw, NoticeKind.RawCopied, CancellationToken.None);
+            // History keeps the spoken command; the raw text the run worked on is what follows it.
+            if (_history.Get(id) is { RawText: { } raw } row)
+                await _executor.CopyForUserAsync(ModeCommands.ContentFor(raw, row.Mode), NoticeKind.RawCopied, CancellationToken.None);
         });
         _overlay.OpenYolimeSettings += page => OpenSettings(SettingsWindow.PageFor(page));
         _overlay.PreviewHover += over => hooks.PreviewHover(over);
@@ -274,6 +275,15 @@ internal sealed class AppHost : IDisposable
         {
             _tray.Show(holdKeyReset ? new Notice(NoticeKind.HoldKeyReset) : new Notice(NoticeKind.Started, HoldKey: initial.HoldKeyVk));
         }
+        if (Settings.Current.SpokenModesNoticePending)
+        {
+            // Once, after the upgrade that replaced Shift-cycled modes: later, so it doesn't replace the balloons above.
+            _ = Task.Delay(TimeSpan.FromSeconds(12)).ContinueWith(_ => _ui.TryEnqueue(() =>
+            {
+                _tray.Show(new Notice(NoticeKind.ModesAreSpoken));
+                Settings.Update(s => s with { SpokenModesNoticePending = false });
+            }), TaskScheduler.Default);
+        }
         updates.Start();
 #if YOLIME_E2E
         E2E.E2EMode.Record(coordinator, _overlay, updates, startup);
@@ -361,27 +371,12 @@ internal sealed class AppHost : IDisposable
     /// <summary>Whether transcription has a key and a valid endpoint, for the tray, Settings and the wizard.</summary>
     public bool SttReady => _stt.CheckReady() == SttReadiness.Ready;
 
-    /// <summary>
-    /// The window in front as the hook asks (it picks the hold's starting mode), re-reading the process only when the
-    /// window changed. A cache fed by foreground events was stale in the Sandbox (a console window), which started
-    /// every hold in Prompt; GetForegroundWindow is cheap enough to ask each time.
-    /// </summary>
-    private TargetSnapshot ForegroundNow()
-    {
-        var hwnd = User32.GetForegroundWindow();
-        var known = _foreground;
-        if (known is not null && known.Hwnd == hwnd) return known;
-        var fresh = TargetReader.Light(hwnd);
-        _foreground = fresh;
-        return fresh;
-    }
-
     private void OnSettingsChanged(YolimeSettings old, YolimeSettings now)
     {
         // Events from two threads can arrive out of order, so act on what is current, not on this event's values.
         var current = Settings.Current;
         if (old.HoldKeyVk != now.HoldKeyVk || old.DoubleTapLatch != now.DoubleTapLatch)
-            _hooks.Reconfigure(current.HoldKeyVk, new HoldOptions(DoubleTapLatch: current.DoubleTapLatch, ModeCycling: true));
+            _hooks.Reconfigure(current.HoldKeyVk, new HoldOptions(DoubleTapLatch: current.DoubleTapLatch));
         // Pausing or resuming history forgets the last result: nothing from before a pause comes back after it, and a
         // run that started on the other side of the switch isn't kept.
         if (old.HistoryPaused != now.HistoryPaused) LastResult.Clear();

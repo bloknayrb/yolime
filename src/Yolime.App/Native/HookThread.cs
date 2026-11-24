@@ -21,7 +21,6 @@ internal sealed class HookThread : IDisposable
     private int _holdVk;
     private HookReducer _reducer;
     private HoldStateMachine _machine;
-    private readonly Func<Mode> _startingMode;
     private readonly ILog _log;
     private readonly ConcurrentQueue<Action> _actions = new();
     private readonly Channel<HoldEffect> _effects = Channel.CreateUnbounded<HoldEffect>(new UnboundedChannelOptions { SingleReader = true });
@@ -47,13 +46,12 @@ internal sealed class HookThread : IDisposable
     private long _lastUserMouseDownMs;
     private int _ticksSinceReArm;
 
-    public HookThread(int holdVk, HoldStateMachine machine, Func<Mode> startingMode, Action<HoldEffect> onEffect, ILog log)
+    public HookThread(int holdVk, HoldStateMachine machine, Action<HoldEffect> onEffect, ILog log)
     {
         _holdVk = holdVk;
         _reducer = new HookReducer(holdVk);
         _preview = new PreviewCapture(holdVk);
         _machine = machine;
-        _startingMode = startingMode;
         _log = log;
         _keyboardProc = KeyboardProc;
         _mouseProc = MouseProc;
@@ -477,7 +475,7 @@ internal sealed class HookThread : IDisposable
     {
         // At a new press, Shift's real state: resyncs a Shift up that went to an admin window.
         bool? shift = kind == HotkeyKind.HoldDown ? User32.GetAsyncKeyState(0x10) < 0 : null; // VK_SHIFT
-        var (swallow, effects) = _machine.Handle(new HotkeyInput(kind, Environment.TickCount64, holdDown, switchPending, shift), _startingMode());
+        var (swallow, effects) = _machine.Handle(new HotkeyInput(kind, Environment.TickCount64, holdDown, switchPending, shift));
         foreach (var e in effects) _effects.Writer.TryWrite(e);
         UpdateMouseHook();
         ApplyReconfigureIfIdle();

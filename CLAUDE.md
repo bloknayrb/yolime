@@ -12,6 +12,11 @@ yolime is a personal, Windows-only, hold-to-talk voice writer in the style of he
 
 The eight plan steps after the spike are all on `main` (as of 2026-10-28): core pipeline, hook and injection, LLM modes, overlay, onboarding and settings, history, latency (#8) and publish (#10), plus two follow-up fixes, hold races (#9) and the preview gesture (#11). `spike/overlay` was the throwaway spike and stays unmerged. Each step's plan, with its review rulings and deferrals, is in `docs/superpowers/plans/`. The README describes what the app actually does; where it and `docs/plan.md` differ, the README is right.
 
+Modes are spoken (2026-11-24, `docs/superpowers/plans/2026-11-24-spoken-mode-commands.md`): every hold is Dictate,
+and "write a prompt", "write a reply" or "raw" at the start of the transcript picks the mode (`ModeCommands`, matched
+after STT in the pipeline). Shift-tap cycling and per-app starting modes are gone; Shift held at release still
+previews. This supersedes the mode-selection rules in `docs/plan.md`.
+
 Deferred to their own PRs, each with constraints recorded in `2026-10-28-latency.md`:
 - delayed clipboard rendering;
 - streaming upload, only if the timing log shows upload time matters;

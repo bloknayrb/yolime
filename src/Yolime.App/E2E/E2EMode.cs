@@ -52,7 +52,8 @@ internal static class E2EMode
         return new HostOverrides(
             new AppPaths(Path.Combine(dataDir, "roaming"), Path.Combine(dataDir, "local")),
             new FileMicDevice(mic),
-            new FakeTranscriptionSessionFactory(text, delay),
+            // A scenario speaks a command for one hold by writing "next-transcript" into the results folder.
+            new FakeTranscriptionSessionFactory(text, delay, ResultsDir is { } results ? Path.Combine(results, "next-transcript") : null),
             args.Contains("--test-rewrite") ? new E2ERewriter() : null,
             () => new FileRawCapture(mic));
     }

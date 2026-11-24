@@ -17,13 +17,14 @@ public enum DiscardReason { ShortTap, Esc, OtherInput, ForegroundChanged, Sessio
 
 public abstract record HoldEffect;
 
-/// <summary>The key went down: start listening now, so nothing said before the 300 ms mark is lost.</summary>
-public sealed record StartCapture(Mode Mode) : HoldEffect;
+/// <summary>
+/// The key went down: start listening now, so nothing said before the 300 ms mark is lost. Every hold is Dictate; a
+/// spoken command at the start picks another mode once the transcript is in.
+/// </summary>
+public sealed record StartCapture : HoldEffect;
 
 /// <summary>The hold passed 300 ms: it's a dictation, not a shortcut.</summary>
 public sealed record ShowRecording : HoldEffect;
-
-public sealed record CycleMode(Mode Next) : HoldEffect;
 
 /// <param name="ShiftHeld">
 /// A Shift pressed during the recording was still held at release, for <see cref="HoldOptions.PreviewShiftMs"/> or
@@ -44,7 +45,6 @@ public sealed record Latched : HoldEffect;
 
 public sealed record HoldOptions(
     bool DoubleTapLatch = false,
-    bool ModeCycling = true,
     int TapMs = 300,
     int DoubleTapWindowMs = 400,
     int CancelDebounceMs = 400,
@@ -71,8 +71,9 @@ public sealed class HoldStateMachine(HoldOptions options)
     private int _upReadings;
     private bool _shiftDown;
     private bool _shiftSwallowed;
-    // A Shift pressed during this recording (its down was swallowed), and when: its up cycles the mode, or, still held
-    // long enough at release, it asks for a preview.
+    // A Shift pressed during this recording (its down was swallowed), and when: still held long enough at release, it
+    // asks for a preview. A Shift tap changes nothing (modes are spoken), but stays swallowed so Ctrl+Shift can't
+    // switch the keyboard layout mid-hold.
     private bool _shiftInRecording;
     private long _shiftDownAt;
     private long _pressAt;
@@ -84,7 +85,6 @@ public sealed class HoldStateMachine(HoldOptions options)
     private bool _busyRejected;
     private bool _pressVoided;
     private int _lastWarning;
-    private Mode _mode;
 
     public HoldState State { get; private set; } = HoldState.Idle;
 
@@ -95,7 +95,7 @@ public sealed class HoldStateMachine(HoldOptions options)
     /// </summary>
     public bool HoldKeyDown => _holdDown;
 
-    public (bool Swallow, IReadOnlyList<HoldEffect> Effects) Handle(HotkeyInput input, Mode startingMode)
+    public (bool Swallow, IReadOnlyList<HoldEffect> Effects) Handle(HotkeyInput input)
     {
         switch (input.Kind)
         {
@@ -111,7 +111,7 @@ public sealed class HoldStateMachine(HoldOptions options)
                     _shiftDown = false;
                     _shiftSwallowed = false;
                 }
-                return (false, HoldDown(input.AtMs, startingMode));
+                return (false, HoldDown(input.AtMs));
             case HotkeyKind.HoldUp:
                 if (!_holdDown) return (false, None);
                 _holdDown = false;
@@ -124,10 +124,9 @@ public sealed class HoldStateMachine(HoldOptions options)
                 _shiftDown = false;
                 var swallow = _shiftSwallowed;
                 _shiftSwallowed = false;
-                // The mode changes on the up: a Shift still held at release is a preview of this mode, not a cycle.
-                var cycle = _shiftInRecording && State == HoldState.Recording && options.ModeCycling;
+                // Let go before the hold key: not a preview.
                 _shiftInRecording = false;
-                return (swallow, cycle ? [new CycleMode(_mode = Next(_mode))] : None);
+                return (swallow, None);
             }
             case HotkeyKind.Esc:
                 return Esc();
@@ -164,12 +163,11 @@ public sealed class HoldStateMachine(HoldOptions options)
         _shiftInRecording = false;
     }
 
-    private IReadOnlyList<HoldEffect> HoldDown(long at, Mode startingMode)
+    private IReadOnlyList<HoldEffect> HoldDown(long at)
     {
         switch (State)
         {
             case HoldState.Idle:
-                _mode = startingMode;
                 _lastWarning = 0;
                 if (options.DoubleTapLatch && _lastTapUpAt is { } tap && at - tap <= options.DoubleTapWindowMs)
                 {
@@ -178,11 +176,11 @@ public sealed class HoldStateMachine(HoldOptions options)
                     _latchKeyDown = true;
                     _endingLatch = false;
                     _lastTapUpAt = null;
-                    return [new StartCapture(_mode), new Latched()];
+                    return [new StartCapture(), new Latched()];
                 }
                 State = HoldState.Pressed;
                 _pressAt = at;
-                return [new StartCapture(_mode)];
+                return [new StartCapture()];
             case HoldState.Latched:
                 _latchKeyDown = true;
                 _endingLatch = true;
@@ -232,7 +230,7 @@ public sealed class HoldStateMachine(HoldOptions options)
                 // Under 300 ms Right Ctrl + Shift is a shortcut (select word, reopen tab): let it through.
                 return (false, DiscardWith(DiscardReason.OtherInput));
             case HoldState.Recording:
-                // Swallowed even when cycling is off: Ctrl+Shift is a common keyboard-layout switch.
+                // Swallowed: Ctrl+Shift is a common keyboard-layout switch, and Shift held at release previews.
                 _shiftSwallowed = true;
                 _shiftInRecording = true;
                 _shiftDownAt = at;
@@ -339,9 +337,8 @@ public sealed class HoldStateMachine(HoldOptions options)
         _shiftInRecording = false;
         // Only a normal release previews: at the cap, a hands-free end or a switch away, Shift may be held for typing.
         if (reason != CommitReason.Released || !shift) return [new Commit(reason)];
-        if (at - _shiftDownAt >= options.PreviewShiftMs) return [new Commit(reason, ShiftHeld: true)];
-        // Let go together with the hold key: a mode tap that rolled over the release, so it still changes the mode.
-        return options.ModeCycling ? [new CycleMode(_mode = Next(_mode)), new Commit(reason)] : [new Commit(reason)];
+        // Let go together with the hold key, but pressed only just before: a tap that rolled over the release, not a preview.
+        return at - _shiftDownAt >= options.PreviewShiftMs ? [new Commit(reason, ShiftHeld: true)] : [new Commit(reason)];
     }
 
     private IReadOnlyList<HoldEffect> DiscardWith(DiscardReason reason, bool fromWatchdog = false)
@@ -350,12 +347,4 @@ public sealed class HoldStateMachine(HoldOptions options)
         _shiftInRecording = false;
         return [new Discard(reason, fromWatchdog)];
     }
-
-    private static Mode Next(Mode m) => m switch
-    {
-        Mode.Dictate => Mode.Prompt,
-        Mode.Prompt => Mode.Reply,
-        Mode.Reply => Mode.Raw,
-        _ => Mode.Dictate,
-    };
 }

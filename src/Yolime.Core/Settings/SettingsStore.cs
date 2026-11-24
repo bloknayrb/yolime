@@ -10,7 +10,7 @@ namespace Yolime.Core.Settings;
 /// </summary>
 public sealed class SettingsStore
 {
-    public const int CurrentSchemaVersion = 1;
+    public const int CurrentSchemaVersion = 2;
     private const int KeepBackups = 5;
 
     private readonly AppPaths _paths;

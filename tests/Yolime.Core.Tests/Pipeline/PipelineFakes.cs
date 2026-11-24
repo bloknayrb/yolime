@@ -66,11 +66,15 @@ public sealed class FakeRewriter(Func<RewriteRequest, IEnumerable<string>> delta
     public RewriterReadiness Readiness { get; set; } = RewriterReadiness.Ready;
     public List<RewriteRequest> Requests { get; } = [];
 
+    /// <summary>When set, the stream waits for it before its first delta (a rewrite still running).</summary>
+    public Task? Gate { get; init; }
+
     public RewriterReadiness CheckReady() => Readiness;
 
     public async IAsyncEnumerable<string> StreamAsync(RewriteRequest request, [EnumeratorCancellation] CancellationToken ct)
     {
         lock (Requests) Requests.Add(request);
+        if (Gate is { } gate) await gate.WaitAsync(ct);
         foreach (var d in deltas(request))
         {
             await Task.Yield();

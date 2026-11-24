@@ -1,12 +1,12 @@
 namespace Yolime.E2E;
 
-/// <summary>fix/preview-gesture: Shift held at release previews this mode; a Shift tap that rolls over it still cycles.</summary>
+/// <summary>fix/preview-gesture: Shift held at release previews; a Shift tap that rolls over it does nothing (modes are spoken).</summary>
 internal sealed partial class Scenarios
 {
     public IEnumerable<Scenario> PreviewGesture() =>
     [
         new("PreviewByShift_KeepsTheMode", PreviewByShift),
-        new("ShiftTapRolledOverRelease_Cycles", ShiftTapRolledOver),
+        new("ShiftTapRolledOverRelease_NoPreview", ShiftTapRolledOver),
     ];
 
     /// <summary>
@@ -30,11 +30,11 @@ internal sealed partial class Scenarios
         Thread.Sleep(500);
         Input.Up(Input.LShift);
         if (!WaitRun(runs)) return "no run finished";
-        if (LastRun("mode") != "Dictate") return $"mode {LastRun("mode")}: the Shift cycled instead of previewing";
+        if (LastRun("mode") != "Dictate") return $"mode {LastRun("mode")}: the Shift changed the mode";
         return Program.Wait(() => form.On(() => form.Box1.Text) == Transcript, 6000) ? null : $"box1 is '{form.On(() => form.Box1.Text)}'";
     }
 
-    /// <summary>Shift down, the hold key up 40 ms later, Shift up 30 ms after that: a mode tap, so Prompt and no card.</summary>
+    /// <summary>Shift down, the hold key up 40 ms later, Shift up 30 ms after that: a stray tap, so Dictate and no card.</summary>
     private string? ShiftTapRolledOver()
     {
         if (Prepare(form.Box1) is { } fail) return fail;
@@ -48,7 +48,7 @@ internal sealed partial class Scenarios
         Thread.Sleep(30);
         Input.Up(Input.LShift);
         if (!WaitRun(runs)) return "no run finished";
-        if (LastRun("mode") != "Prompt") return $"mode {LastRun("mode")}: the tap didn't cycle";
+        if (LastRun("mode") != "Dictate") return $"mode {LastRun("mode")}: the tap changed the mode";
         if (Count("Preview") > previews) return "a preview card showed";
         return LastRun("delivery") == "Pasted" ? null : $"delivery {LastRun("delivery")}";
     }

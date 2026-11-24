@@ -95,6 +95,7 @@ public sealed record HistoryItem(
         RunOutcome.RewriteFailed => ("Failed: Claude", HistorySeverity.Error),
         RunOutcome.OutputFailed => ("Failed: paste", HistorySeverity.Error),
         RunOutcome.NoSpeech => ("No speech", HistorySeverity.Warning),
+        RunOutcome.CommandOnly => (row.Mode == Mode.Reply ? "Nothing to reply to" : "Nothing after the command", HistorySeverity.Warning),
         RunOutcome.Cancelled => ("Cancelled", HistorySeverity.Warning),
         RunOutcome.Discarded => ("Discarded", HistorySeverity.Warning),
         RunOutcome.Interrupted => ("Interrupted", HistorySeverity.Error),

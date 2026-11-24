@@ -37,7 +37,7 @@ internal sealed partial class ToneSounds : ISounds
     public void PlayModeCue(Mode mode)
     {
         var s = _settings();
-        if (s.Sounds && s.ModeCycleCues) PlaySoundW(_cues[(int)mode], 0, SndMemory | SndAsync | SndNoDefault);
+        if (s.Sounds && s.CommandCues) PlaySoundW(_cues[(int)mode], 0, SndMemory | SndAsync | SndNoDefault);
     }
 
     /// <summary>16-bit mono PCM, each tone faded in and out over 5 ms so it clicks less. Frequency 0 is silence.</summary>

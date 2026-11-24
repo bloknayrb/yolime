@@ -37,9 +37,9 @@ public sealed class CaptureCoordinatorTests : IDisposable
     public void Dispose() => _rig.Dispose();
 
     // Drives the real machine and forwards its effects, exactly as the hook thread does.
-    private void Input(HotkeyKind kind, long at, bool down = true, Mode start = Mode.Dictate)
+    private void Input(HotkeyKind kind, long at, bool down = true)
     {
-        var (_, effects) = _machine.Handle(new HotkeyInput(kind, at, down), start);
+        var (_, effects) = _machine.Handle(new HotkeyInput(kind, at, down));
         foreach (var e in effects) _c.Handle(e);
     }
 
@@ -347,13 +347,29 @@ public sealed class CaptureCoordinatorTests : IDisposable
     private sealed class FakeContext : IContextReader
     {
         public int Calls;
+        public int ClipboardCalls;
         public CapturedContext? Result = new("Lunch Friday?", ContextSource.Selection, 0);
+        public CapturedContext? Clipboard;
         public Exception? Throw;
 
-        public Task<CapturedContext?> ReadAsync(CancellationToken ct)
+        public Task<CapturedContext?> ReadSelectionAsync(CancellationToken ct)
         {
             Interlocked.Increment(ref Calls);
             return Throw is { } ex ? Task.FromException<CapturedContext?>(ex) : Task.FromResult(Result);
+        }
+
+        public int Marks;
+
+        public ClipboardMark MarkClipboard()
+        {
+            Interlocked.Increment(ref Marks);
+            return new ClipboardMark(7, Clipboard?.AgeMs);
+        }
+
+        public Task<CapturedContext?> ReadClipboardAsync(ClipboardMark mark, CancellationToken ct)
+        {
+            Interlocked.Increment(ref ClipboardCalls);
+            return Task.FromResult(mark.Sequence == 7 ? Clipboard : null);
         }
     }
 
@@ -585,11 +601,12 @@ public sealed class CaptureCoordinatorTests : IDisposable
     public async Task RetryLast_OnAFailedPromptRewrite_RewritesTheTranscript_WithoutStt()
     {
         _rig.Rewriter = new FakeRewriter(_ => [], RewriteFailure.Server);
+        _rig.Stt.Text = "Write a prompt. Fix the login bug";
         _c = Rebuild();
-        Input(HotkeyKind.HoldDown, 0, start: Mode.Prompt);
+        Input(HotkeyKind.HoldDown, 0);
         _device.Last!.Speak();
-        Input(HotkeyKind.Tick, 300, start: Mode.Prompt);
-        Input(HotkeyKind.HoldUp, 1500, start: Mode.Prompt);
+        Input(HotkeyKind.Tick, 300);
+        Input(HotkeyKind.HoldUp, 1500);
         await WaitIdle();
         var sttCalls = _rig.Stt.Completions;
 
@@ -602,83 +619,139 @@ public sealed class CaptureCoordinatorTests : IDisposable
     }
 
     [Fact]
-    public async Task ReplyHold_ReadsTheContextOnce_AndTheRewriteGetsIt()
+    public async Task ASpokenReply_UsesTheSelectionReadDuringTheHold_WithoutOpeningTheClipboard()
     {
+        _rig.Stt.Text = "Write a reply. Sounds good, see you then.";
         var fake = Rewriting();
-        Input(HotkeyKind.HoldDown, 0, start: Mode.Reply);
+        Input(HotkeyKind.HoldDown, 0);
         _device.Last!.Speak();
-        Input(HotkeyKind.Tick, 300, start: Mode.Reply);
-        Input(HotkeyKind.HoldUp, 1500, start: Mode.Reply);
+        Input(HotkeyKind.Tick, 300);
+        Input(HotkeyKind.HoldUp, 1500);
         await WaitIdle();
 
         Assert.Equal(1, _context.Calls);
-        Assert.Equal("Lunch Friday?", Assert.Single(fake.Requests).Context!.Text);
+        Assert.Equal(0, _context.ClipboardCalls);
+        var sent = Assert.Single(fake.Requests);
+        Assert.Equal(Mode.Reply, sent.Mode);
+        Assert.Equal("Lunch Friday?", sent.Context!.Text);
+        Assert.Equal("Sounds good, see you then.", sent.Transcript);
+        Assert.Equal([Mode.Reply], _cues); // the spoken command is confirmed before anything pastes
     }
 
     [Fact]
-    public async Task DictateHold_NeverReadsContext()
+    public async Task ASpokenPrompt_WithNoSelection_ReadsAFreshCopy_OnlyThen()
     {
-        Input(HotkeyKind.HoldDown, 0);
-        _device.Last!.Speak();
-        Input(HotkeyKind.Tick, 300);
-        Input(HotkeyKind.HoldUp, 1500);
-        await WaitIdle();
-        Assert.Equal(0, _context.Calls);
-    }
-
-    [Fact]
-    public async Task CyclingIntoPrompt_ReadsContextOnce_AndEachCycleCues()
-    {
-        _rig.Stt.Text = PipelineRig.LongTranscript;
+        _rig.Stt.Text = "Write a prompt. " + PipelineRig.LongTranscript;
+        _context.Result = null;
+        _context.Clipboard = new CapturedContext("var x = 1;", ContextSource.Clipboard, 4_000);
         var fake = Rewriting();
         Input(HotkeyKind.HoldDown, 0);
         _device.Last!.Speak();
         Input(HotkeyKind.Tick, 300);
-        Assert.Equal(0, _context.Calls);
-        Input(HotkeyKind.ShiftDown, 500);
-        Input(HotkeyKind.ShiftUp, 520, down: false);
-        await Until(() => _context.Calls == 1); // Dictate → Prompt (the read runs off the hook thread)
-        Input(HotkeyKind.ShiftDown, 700);
-        Input(HotkeyKind.ShiftUp, 720, down: false);
-        await Task.Delay(50);
-        Assert.Equal(1, _context.Calls); // Prompt → Reply: already read
+        await Until(() => _context.Calls == 1);
+        Assert.Equal(0, _context.ClipboardCalls); // not while the mode is unknown
         Input(HotkeyKind.HoldUp, 1500);
         await WaitIdle();
 
-        Assert.Equal([Mode.Prompt, Mode.Reply], _cues);
-        var sent = Assert.Single(fake.Requests);
-        Assert.Equal(Mode.Reply, sent.Mode);
-        Assert.Equal("Lunch Friday?", sent.Context!.Text);
+        Assert.Equal(1, _context.ClipboardCalls);
+        Assert.Equal(Mode.Prompt, Assert.Single(fake.Requests).Mode);
+        Assert.Contains("var x = 1;", Assert.Single(_rig.Sink.Delivered).Text); // Prompt attaches it verbatim
+    }
+
+    [Fact]
+    public async Task ADictateHold_ReadsTheSelection_ButNeverTheClipboard_AndKeepsNoContext()
+    {
+        _context.Clipboard = new CapturedContext("secret-ish copy", ContextSource.Clipboard, 1_000);
+        Input(HotkeyKind.HoldDown, 0);
+        _device.Last!.Speak();
+        Input(HotkeyKind.Tick, 300);
+        Input(HotkeyKind.HoldUp, 1500);
+        await WaitIdle();
+        Assert.Equal(1, _context.Calls);
+        Assert.Equal(0, _context.ClipboardCalls);
+        var row = Assert.Single(_rig.History.All());
+        Assert.Equal(Mode.Dictate, row.Mode);
+        Assert.Null(row.Context);
+        Assert.Empty(_cues);
+    }
+
+    [Fact]
+    public async Task ACopyThatWasStaleAtTheHold_IsNeverRead()
+    {
+        // Freshness is judged when the hold starts, not after a long recording and STT.
+        _rig.Stt.Text = "Write a reply. Sounds good";
+        var stale = new FakeContextStale();
+        var fake = Rewriting(); // rebuilds with the shared reader: replace it with the stale one
+        _c = new CaptureCoordinator(_rig.Build(), _device, _targets, _rig.Stt, _rig.History, _notes, new Sounds(_sounds, _cues),
+            act => act(_machine), _rig.Time, _rig.Log, stale, () => _rig.Settings);
+        Input(HotkeyKind.HoldDown, 0);
+        _device.Last!.Speak();
+        Input(HotkeyKind.Tick, 300);
+        Input(HotkeyKind.HoldUp, 1500);
+        await WaitIdle();
+        Assert.Equal(1, stale.Marks);
+        Assert.Equal(0, stale.Reads);
+        Assert.Null(Assert.Single(fake.Requests).Context);
+    }
+
+    private sealed class FakeContextStale : IContextReader
+    {
+        public int Marks;
+        public int Reads;
+
+        public Task<CapturedContext?> ReadSelectionAsync(CancellationToken ct) => Task.FromResult<CapturedContext?>(null);
+
+        public ClipboardMark MarkClipboard()
+        {
+            Interlocked.Increment(ref Marks);
+            return new ClipboardMark(3, null);
+        }
+
+        public Task<CapturedContext?> ReadClipboardAsync(ClipboardMark mark, CancellationToken ct)
+        {
+            Interlocked.Increment(ref Reads);
+            return Task.FromResult<CapturedContext?>(new("old copy", ContextSource.Clipboard, 200_000));
+        }
     }
 
     [Theory]
     [InlineData(false, true)]
     [InlineData(true, false)]
-    public void Cues_NeedBothSoundsAndCueSettings(bool sounds, bool cues)
+    public async Task CommandCues_NeedBothSoundsAndCueSettings(bool sounds, bool cues)
     {
-        _rig.Settings = _rig.Settings with { Sounds = sounds, ModeCycleCues = cues };
+        _rig.Settings = _rig.Settings with { Sounds = sounds, CommandCues = cues };
+        _rig.Stt.Text = "Raw. hello there";
         Input(HotkeyKind.HoldDown, 0);
+        _device.Last!.Speak();
         Input(HotkeyKind.Tick, 300);
-        Input(HotkeyKind.ShiftDown, 500);
-        Input(HotkeyKind.ShiftUp, 550, down: false);
+        Input(HotkeyKind.HoldUp, 1500);
+        await WaitIdle();
         Assert.Empty(_cues);
+        Assert.Equal("hello there", Assert.Single(_rig.Sink.Delivered).Text);
     }
 
     [Fact]
-    public void ACue_PlaysWhenBothAreOn()
+    public async Task ShiftTapsWhileRecording_ChangeNothing()
     {
-        // The other half of the cue-settings test: the same taps do cue, so its empty list means something.
         Input(HotkeyKind.HoldDown, 0);
+        _device.Last!.Speak();
         Input(HotkeyKind.Tick, 300);
         Input(HotkeyKind.ShiftDown, 500);
-        Input(HotkeyKind.ShiftUp, 550, down: false);
-        Assert.Equal([Mode.Prompt], _cues);
+        Input(HotkeyKind.ShiftUp, 520, down: false);
+        Input(HotkeyKind.ShiftDown, 700);
+        Input(HotkeyKind.ShiftUp, 720, down: false);
+        Input(HotkeyKind.HoldUp, 1500);
+        await WaitIdle();
+        Assert.Empty(_cues);
+        Assert.Equal(Mode.Dictate, Assert.Single(_rig.History.All()).Mode);
+        Assert.Equal("Hello world.", Assert.Single(_rig.Sink.Delivered).Text);
     }
 
     [Fact]
-    public async Task ShiftHeldAtRelease_PreviewsInTheStartingMode()
+    public async Task ShiftHeldAtRelease_Previews_AndASpokenModeIsPreviewed()
     {
-        _rig.Stt.Text = PipelineRig.LongTranscript;
+        _rig.Stt.Text = "Write a reply. " + PipelineRig.LongTranscript;
+        Rewriting();
         Input(HotkeyKind.HoldDown, 0);
         _device.Last!.Speak();
         Input(HotkeyKind.Tick, 300);
@@ -686,20 +759,43 @@ public sealed class CaptureCoordinatorTests : IDisposable
         Input(HotkeyKind.HoldUp, 900);
         Input(HotkeyKind.ShiftUp, 950, down: false);
         await WaitIdle();
-        Assert.Empty(_cues);
         var run = Assert.Single(_rig.History.All());
-        Assert.Equal(Mode.Dictate, run.Mode);
+        Assert.Equal(Mode.Reply, run.Mode);
+        var delivered = Assert.Single(_rig.Sink.Delivered);
+        Assert.True(delivered.PreviewRequested);
+        Assert.Equal(Mode.Reply, delivered.Mode);
+    }
+
+    [Fact]
+    public async Task HoldDuringASpokenReply_SaysBusy_WithReply()
+    {
+        _rig.Stt.Text = "Write a reply. " + PipelineRig.LongTranscript;
+        var gate = new TaskCompletionSource();
+        _rig.Rewriter = new FakeRewriter(_ => ["Sure."]) { Gate = gate.Task };
+        _c = Rebuild();
+        Input(HotkeyKind.HoldDown, 0);
+        _device.Last!.Speak();
+        Input(HotkeyKind.Tick, 300);
+        Input(HotkeyKind.HoldUp, 1500);
+        await Until(() => _cues.Count == 1);
+        Input(HotkeyKind.HoldDown, 3000);
+        Input(HotkeyKind.Tick, 3400);
+        Assert.Equal(Mode.Reply, _notes.Shown.Single(n => n.Kind == NoticeKind.Busy).Mode);
+        gate.SetResult();
+        Input(HotkeyKind.HoldUp, 3500);
+        await WaitIdle();
     }
 
     [Fact]
     public async Task AFailingContextRead_IsNoContext_NotAFailedRun()
     {
         _context.Throw = new InvalidOperationException("UIA died");
+        _rig.Stt.Text = "Write a reply. Sounds good";
         var fake = Rewriting();
-        Input(HotkeyKind.HoldDown, 0, start: Mode.Reply);
+        Input(HotkeyKind.HoldDown, 0);
         _device.Last!.Speak();
-        Input(HotkeyKind.Tick, 300, start: Mode.Reply);
-        Input(HotkeyKind.HoldUp, 1500, start: Mode.Reply);
+        Input(HotkeyKind.Tick, 300);
+        Input(HotkeyKind.HoldUp, 1500);
         await WaitIdle();
 
         Assert.Null(Assert.Single(fake.Requests).Context);

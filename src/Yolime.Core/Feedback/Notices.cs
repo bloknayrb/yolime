@@ -1,6 +1,7 @@
 using Yolime.Core.Audio;
 using Yolime.Core.History;
 using Yolime.Core.Llm;
+using Yolime.Core.Modes;
 using Yolime.Core.Output;
 using Yolime.Core.Pipeline;
 using Yolime.Core.Stt;
@@ -61,6 +62,12 @@ public enum NoticeKind
     UpdateHoldRefused,
     /// <summary>The download, its check or setup's start failed while the update window was closed.</summary>
     UpdateAttemptFailed,
+    /// <summary>A spoken command with nothing after it ("Write a prompt."). Mode says which.</summary>
+    CommandOnly,
+    /// <summary>"Write a reply" with nothing after it and no selection or fresh copy to reply to.</summary>
+    NothingToReply,
+    /// <summary>Once, after an upgrade from Shift-cycled modes: modes are now spoken.</summary>
+    ModesAreSpoken,
 }
 
 /// <summary>
@@ -106,6 +113,7 @@ public static class Notices
     private static Notice? Base(RunResult r) => r.Outcome switch
     {
         RunOutcome.NoSpeech => new(NoticeKind.DidntHear),
+        RunOutcome.CommandOnly => new(r.Mode == Mode.Reply ? NoticeKind.NothingToReply : NoticeKind.CommandOnly, r.Mode),
         RunOutcome.SttFailed => new(r.SttError switch
         {
             SttError.MissingKey => NoticeKind.NoKey,
@@ -190,6 +198,9 @@ public static class Notices
         NoticeKind.MicDenied => "Microphone access is off. Click to open Windows privacy settings.",
         NoticeKind.NoMic => "No microphone found.",
         NoticeKind.MicLost => Kept("The microphone disconnected.", n, "If anything was recorded, Retry from the tray."),
+        NoticeKind.CommandOnly => $"Heard \u201c{ModeCommands.Example(n.Mode ?? Mode.Prompt)}\u201d, but nothing after it. Say the command and what you want in the same hold.",
+        NoticeKind.ModesAreSpoken => $"Modes are now spoken: start with \u201cwrite a prompt\u201d, \u201cwrite a reply\u201d or \u201craw\u201d. Everything else is dictation.",
+        NoticeKind.NothingToReply => "Nothing to reply to: select or copy the message first, or say what the reply should say.",
         NoticeKind.DidntHear => Kept("Didn't hear anything. Is the mic muted?", n, "Retry from the tray to send it anyway."),
         NoticeKind.Busy => $"Still working on your {Noun(n.Mode)}. Tap the hold key to cancel it. This recording wasn't kept.",
         NoticeKind.Copied => $"Copied: {Press(n)} to paste.",

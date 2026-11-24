@@ -24,7 +24,9 @@ public static class RunRetry
 {
     public static bool IsRetryable(RunResult r) => r.HistoryId is not null && (r.Outcome is RunOutcome.SttFailed or RunOutcome.NoSpeech
         or RunOutcome.Interrupted or RunOutcome.Cancelled or RunOutcome.CaptureFailed
-        || (r.Outcome == RunOutcome.CompletedWithFallback && r.RewriteError is not null && r.Mode is Mode.Prompt or Mode.Reply));
+        || (r.Outcome == RunOutcome.CompletedWithFallback && r.RewriteError is not null && r.Mode is Mode.Prompt or Mode.Reply)
+        // "Write a reply" alone, drafted from its context, whose rewrite failed: nothing to fall back to, so rewrite again.
+        || (r.Outcome == RunOutcome.RewriteFailed && r.Mode == Mode.Reply && r.ContextSource is not null));
 }
 
 /// <summary>
