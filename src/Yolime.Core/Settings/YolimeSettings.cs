@@ -38,8 +38,6 @@ public sealed record YolimeSettings
     /// <summary>Double-tap the hold key for hands-free recording; a tap ends it. Off by default.</summary>
     public bool DoubleTapLatch { get; set; }
 
-    public Mode StartingMode { get; set; } = Mode.Dictate;
-
     /// <summary>Start, stop and error sounds. They're the only feedback that Do Not Disturb doesn't silence.</summary>
     public bool Sounds { get; set; } = true;
 
@@ -53,13 +51,16 @@ public sealed record YolimeSettings
     public string PromptModel { get; set; } = Modes.ModelIds.Sonnet;
 
     /// <summary>
-    /// Process name → starting mode name ("Prompt"). Values are strings so one bad entry is skipped instead of
-    /// making the whole file unreadable.
+    /// Beeps that confirm a spoken command before anything pastes (2 = Prompt, 3 = Reply, 4 = Raw). Needs
+    /// <see cref="Sounds"/>.
     /// </summary>
-    public Dictionary<string, string> AppStartingModes { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    public bool CommandCues { get; set; } = true;
 
-    /// <summary>Beeps that say which mode a Shift tap switched to (1 = Dictate … 4 = Raw). Needs <see cref="Sounds"/>.</summary>
-    public bool ModeCycleCues { get; set; } = true;
+    /// <summary>
+    /// Set by the schema-2 migration for someone who used Shift-cycled modes: the next start says once that modes are
+    /// now spoken, then clears it. Never set for a new install.
+    /// </summary>
+    public bool SpokenModesNoticePending { get; set; }
 
     /// <summary>Where the notch sits on the monitor the user is working on.</summary>
     public OverlayPosition OverlayPosition { get; set; } = OverlayPosition.TopCentre;
@@ -131,11 +132,9 @@ public sealed record YolimeSettings
         if (string.IsNullOrWhiteSpace(GroqSttModel)) yield return "groqSttModel";
         if (Vocabulary is null || Vocabulary.Any(v => v is null)) yield return "vocabulary";
         if (!Hotkeys.HookReducer.IsValidHoldKey(HoldKeyVk)) yield return "holdKeyVk";
-        if (!Enum.IsDefined(StartingMode)) yield return "startingMode";
         if (HistoryRetentionDays is < 1 or > 3650) yield return "historyRetentionDays";
         if (SilenceRms is < 0.0001 or > 0.5 or double.NaN) yield return "silenceRms";
         if (PromptModel is null || !Modes.ModelIds.Known.Contains(PromptModel)) yield return "promptModel";
-        if (AppStartingModes is null) yield return "appStartingModes";
         if (!Enum.IsDefined(OverlayPosition)) yield return "overlayPosition";
         if (PreviewModes is null) yield return "previewModes";
         if (!Hotkeys.HotkeyChord.TryParse(PasteLastHotkey, out _)) yield return "pasteLastHotkey";
@@ -154,11 +153,9 @@ public sealed record YolimeSettings
                 "groqSttModel" => result with { GroqSttModel = defaults.GroqSttModel },
                 "vocabulary" => result with { Vocabulary = defaults.Vocabulary },
                 "holdKeyVk" => result with { HoldKeyVk = defaults.HoldKeyVk },
-                "startingMode" => result with { StartingMode = defaults.StartingMode },
                 "historyRetentionDays" => result with { HistoryRetentionDays = defaults.HistoryRetentionDays },
                 "silenceRms" => result with { SilenceRms = defaults.SilenceRms },
                 "promptModel" => result with { PromptModel = defaults.PromptModel },
-                "appStartingModes" => result with { AppStartingModes = defaults.AppStartingModes },
                 "overlayPosition" => result with { OverlayPosition = defaults.OverlayPosition },
                 "previewModes" => result with { PreviewModes = defaults.PreviewModes },
                 "pasteLastHotkey" => result with { PasteLastHotkey = defaults.PasteLastHotkey },

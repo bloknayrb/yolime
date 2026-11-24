@@ -13,17 +13,6 @@ public class SettingsEditsTests
     }
 
     [Fact]
-    public void AppModes_AreSetAndRemoved_WithoutTouchingTheOriginal()
-    {
-        var before = new YolimeSettings();
-        var after = SettingsEdits.WithAppMode(before, " Slack.exe ", Mode.Reply);
-        Assert.Equal("Reply", after.AppStartingModes["slack"]);
-        Assert.Empty(before.AppStartingModes);
-        Assert.Empty(SettingsEdits.WithAppMode(after, "SLACK", null).AppStartingModes);
-        Assert.Same(before, SettingsEdits.WithAppMode(before, "  ", Mode.Raw));
-    }
-
-    [Fact]
     public void PreviewModes_Toggle_WithoutDuplicates()
     {
         var s = SettingsEdits.WithPreview(new YolimeSettings(), Mode.Prompt, true);

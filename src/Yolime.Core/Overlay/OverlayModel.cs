@@ -63,6 +63,7 @@ public sealed record RecordingStarted(Mode Mode, string AppName, bool Latched, l
 /// </summary>
 public sealed record AudioFlowing(long AtMs, bool Delivered, Guid RunId) : OverlayInput;
 
+/// <summary>A spoken command picked the run's mode, after the transcript: the Working card and what follows say it.</summary>
 public sealed record ModeChanged(Mode Mode) : OverlayInput;
 
 /// <summary>The target app's name, once the target lookup (which runs beside the mic) has finished.</summary>
@@ -70,8 +71,11 @@ public sealed record AppIdentified(string AppName) : OverlayInput;
 
 public sealed record Level(float Rms, long AtMs) : OverlayInput;
 
-/// <summary>The context the run will use, already filtered. <paramref name="Skipped"/>: a clipboard held a secret.</summary>
-public sealed record ContextShown(string? Snippet, ContextSource? Source, long AgeMs, bool Skipped) : OverlayInput;
+/// <summary>
+/// The context a Prompt or Reply will use, already filtered, once its mode is known. <paramref name="Skipped"/>: a
+/// clipboard held a secret. <paramref name="RunId"/>: a late read from an earlier run never lands on a newer card.
+/// </summary>
+public sealed record ContextShown(string? Snippet, ContextSource? Source, long AgeMs, bool Skipped, Guid RunId = default) : OverlayInput;
 
 /// <summary>The recording cap is <paramref name="SecondsLeft"/> away; the countdown then runs off ticks.</summary>
 public sealed record CapCountdown(int SecondsLeft, long AtMs) : OverlayInput;
@@ -192,6 +196,10 @@ public sealed class OverlayModel(float silenceRms)
                 _mode = m.Mode;
                 Current = Listening();
                 break;
+            case ModeChanged m when Current.State == OverlayState.Working:
+                _mode = m.Mode;
+                Current = Current with { Mode = _mode };
+                break;
             case AudioFlowing a when Current.State == OverlayState.Listening && (a.RunId == _runId || _runId == Guid.Empty):
                 _nowMs = Math.Max(_nowMs, a.AtMs);
                 if (a.Delivered) (_micReady, _readyAtMs) = (true, a.AtMs);
@@ -205,12 +213,16 @@ public sealed class OverlayModel(float silenceRms)
                 if (l.Rms >= silenceRms) _lastVoiceMs = l.AtMs;
                 Current = Listening() with { Level = l.Rms };
                 break;
-            case ContextShown c when Current.State == OverlayState.Listening:
+            case ContextShown c when Current.State is OverlayState.Listening or OverlayState.Working
+                && (c.RunId == Guid.Empty || _runId == Guid.Empty || c.RunId == _runId):
                 // A selection is current, so only the clipboard's age is worth saying.
+                var about = _mode == Mode.Prompt ? "With" : "Replying to";
                 _contextLine = c.Skipped ? "Copied text skipped (looks like a password or key)"
-                    : c.Snippet is null ? "No context"
-                    : $"Replying to: '{Snip(c.Snippet)}' ({(c.Source == ContextSource.Clipboard ? $"copied {c.AgeMs / 1000} s ago" : "selected text")})";
-                Current = Listening();
+                    : c.Snippet is null ? (_mode == Mode.Reply ? "No message found: writing from your words" : "No context")
+                    : $"{about}: '{Snip(c.Snippet)}' ({(c.Source == ContextSource.Clipboard ? $"copied {c.AgeMs / 1000} s ago" : "selected text")})";
+                if (Current.State == OverlayState.Listening) Current = Listening();
+                // While writing, the line shows until the reply itself starts streaming in.
+                else if (_stream.Length == 0) Current = Current with { Detail = _contextLine };
                 break;
             case CapCountdown cap when Current.State == OverlayState.Listening:
                 _capEndMs = cap.AtMs + cap.SecondsLeft * 1000L;
@@ -227,7 +239,7 @@ public sealed class OverlayModel(float silenceRms)
                 break;
             case StageBegan { Stage: Stage.Rewrite } b when Current.State == OverlayState.Working:
                 _nowMs = b.AtMs;
-                Current = Working(_app.Length == 0 ? "Writing…" : $"Writing for {ShortApp(_app)}…", _transcript);
+                Current = Working(WritingTitle(), _contextLine ?? _transcript);
                 break;
             case DeltaArrived d when Current.State == OverlayState.Working:
                 _stream.Append(d.Text);
@@ -334,8 +346,10 @@ public sealed class OverlayModel(float silenceRms)
         var seconds = (r.Timing?.OutputDoneMs ?? 0) / 1000.0;
         var words = r.Timing?.OutputWords ?? 0;
         var key = r.PasteChord.KeyName();
+        // A mode picked by a spoken command is named, so a misheard (or missed) command shows at a glance.
+        var mode = r.Mode == Mode.Dictate ? "" : $"{r.Mode} · ";
         var title = copied ? $"Copied: press\u00a0{key}"
-            : $"→ {ShortApp(app)} · {words} words · {seconds.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture)} s";
+            : $"→ {ShortApp(app)} · {mode}{words} words · {seconds.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture)} s";
         // Narrator reads words, not the arrow and dots.
         var narration = copied ? $"Copied. Press {key} to paste." : app.Length == 0 ? $"Pasted, {words} words" : $"Pasted into {app}, {words} words";
         _hideAtMs = at + (copied ? CopiedMs : DoneMs);
@@ -429,6 +443,17 @@ public sealed class OverlayModel(float silenceRms)
     }
 
     private static string Label(Mode m) => m.ToString();
+
+    private string WritingTitle()
+    {
+        var what = _mode switch
+        {
+            Mode.Prompt => "Writing a prompt",
+            Mode.Reply => "Writing a reply",
+            _ => "Writing",
+        };
+        return _app.Length == 0 ? what + "…" : $"{what} for {ShortApp(_app)}…";
+    }
 
     private static string Minutes(long ms) => $"{ms / 60_000}:{ms / 1000 % 60:00}";
 

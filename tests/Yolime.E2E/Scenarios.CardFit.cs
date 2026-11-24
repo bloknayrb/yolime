@@ -21,7 +21,7 @@ internal sealed partial class Scenarios
     {
         if (Prepare(form.Box1) is { } fail) return fail;
         var previews = Count("Preview");
-        HoldCycling(cycles: 3);
+        HoldSaying(SayRaw);
         if (!Program.Wait(() => Count("Preview") > previews, 8000)) return "the preview card never showed";
         try { return CheckCard(AppResults, 3, null); }
         finally { Input.Tap(Input.Esc); Thread.Sleep(500); }
@@ -37,11 +37,13 @@ internal sealed partial class Scenarios
             "NoKey", "KeyRejected", "OutOfCredit", "RateLimited", "ServiceUnreachable", "EndpointInvalid", "TranscriptionFailed", "MicDenied", "NoMic",
             "MicLost", "DidntHear", "Busy", "Copied", "CopiedAdminWindow", "PasswordRefused", "OutputFailed", "Interrupted", "Discarded", "CapWarning",
             "CapReached", "Cancelled", "RetryUnavailable", "ContextSkipped", "PreviewKept", "RawCopied", "HoldKeyReset", "PasteLastUnavailable",
-            "ElevatedTarget", "MicFallback", "SettingsNotSaved",
+            "ElevatedTarget", "MicFallback", "SettingsNotSaved", "NothingToReply", "ModesAreSpoken",
         };
         foreach (var k in kinds) yield return $"{k} - false {retryable.Contains(k).ToString().ToLowerInvariant()}";
         // Key and settings problems on a run that was kept: the card adds where to retry from (its longest variants).
         foreach (var k in new[] { "NoKey", "KeyRejected", "EndpointInvalid" }) yield return $"{k} - false true";
+        // A command with nothing after it names the command it heard.
+        foreach (var m in new[] { "Prompt", "Raw" }) yield return $"CommandOnly {m} false false";
         // A rewrite failure's text depends on the mode and on where the transcript went, and Prompt/Reply can Retry.
         foreach (var k in new[] { "RewriteNoKey", "RewriteKeyRejected", "RewriteOutOfCredit", "RewriteRefused", "RewriteTooLong", "RewriteTimedOut", "RewriteUnavailable", "RewriteConfig", "RewriteEmpty" })
         {

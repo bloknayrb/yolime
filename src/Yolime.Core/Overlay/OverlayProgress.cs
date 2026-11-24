@@ -31,6 +31,9 @@ public sealed class OverlayProgress(Action<OverlayInput> overlay, TimeProvider t
             case Pipeline.TranscriptReady transcript:
                 overlay(new TranscriptShown(transcript.Text));
                 break;
+            case Pipeline.ModeResolved resolved:
+                overlay(new ModeChanged(resolved.Mode));
+                break;
             case Pipeline.RewriteDelta delta:
                 overlay(new DeltaArrived(delta.Text, NowMs));
                 break;

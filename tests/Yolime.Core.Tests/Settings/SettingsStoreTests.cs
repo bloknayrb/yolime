@@ -136,10 +136,8 @@ public sealed class SettingsStoreTests : IDisposable
     [InlineData("""{ "sttProvider": 7 }""", "sttProvider")]
     [InlineData("""{ "holdKeyVk": 27 }""", "holdKeyVk")]
     [InlineData("""{ "holdKeyVk": 17 }""", "holdKeyVk")]
-    [InlineData("""{ "startingMode": 9 }""", "startingMode")]
     [InlineData("""{ "promptModel": "claude-sonet-5-5" }""", "promptModel")]
     [InlineData("""{ "promptModel": null }""", "promptModel")]
-    [InlineData("""{ "appStartingModes": null }""", "appStartingModes")]
     [InlineData("""{ "overlayPosition": 9 }""", "overlayPosition")]
     [InlineData("""{ "previewModes": null }""", "previewModes")]
     public void Load_NullBlankOrUndefinedValue_ResetsThatFieldOnly(string json, string field)
@@ -222,16 +220,40 @@ public sealed class SettingsStoreTests : IDisposable
     {
         var defaults = new YolimeSettings();
         Assert.Equal("claude-sonnet-5-5", defaults.PromptModel);
-        Assert.Empty(defaults.AppStartingModes);
-        Assert.True(defaults.ModeCycleCues);
+        Assert.True(defaults.CommandCues);
+        Assert.False(defaults.SpokenModesNoticePending); // a new install has nothing to be told
 
         var store = Store();
-        store.Save(defaults with { PromptModel = "claude-haiku-5-5", AppStartingModes = new() { ["slack"] = "Reply" }, ModeCycleCues = false });
+        store.Save(defaults with { PromptModel = "claude-haiku-5-5", CommandCues = false });
         var loaded = store.Load();
         Assert.Equal(SettingsLoadStatus.Ok, loaded.Status);
         Assert.Equal("claude-haiku-5-5", loaded.Settings.PromptModel);
-        Assert.Equal("Reply", loaded.Settings.AppStartingModes["slack"]);
-        Assert.False(loaded.Settings.ModeCycleCues);
+        Assert.False(loaded.Settings.CommandCues);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Schema1_StartingModes_AreDropped_CuesCarryOver_AndTheNoticeIsPending(bool cues)
+    {
+        // Without the migration, [JsonExtensionData] would keep the old keys and write them back on every save.
+        WriteRaw($$"""{ "schemaVersion": 1, "startingMode": "Raw", "appStartingModes": { "Code": "Prompt" }, "modeCycleCues": {{(cues ? "true" : "false")}}, "historyRetentionDays": 9 }""");
+        var store = Store();
+        var loaded = store.Load();
+        Assert.Equal(SettingsLoadStatus.Ok, loaded.Status);
+        Assert.Empty(loaded.InvalidFields);
+        Assert.Equal(cues, loaded.Settings.CommandCues);
+        Assert.True(loaded.Settings.SpokenModesNoticePending);
+        Assert.Equal(9, loaded.Settings.HistoryRetentionDays);
+        Assert.Equal(SettingsStore.CurrentSchemaVersion, loaded.Settings.SchemaVersion);
+
+        store.Save(loaded.Settings with { SpokenModesNoticePending = false });
+        var doc = JsonNode.Parse(File.ReadAllText(_root.Paths.SettingsFile))!.AsObject();
+        Assert.False(doc.ContainsKey("startingMode"));
+        Assert.False(doc.ContainsKey("appStartingModes"));
+        Assert.False(doc.ContainsKey("modeCycleCues"));
+        Assert.Equal(cues, (bool)doc["commandCues"]!);
+        Assert.False(Store().Load().Settings.SpokenModesNoticePending);
     }
 
     [Fact]

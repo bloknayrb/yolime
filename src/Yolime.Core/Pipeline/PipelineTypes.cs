@@ -8,10 +8,13 @@ using Yolime.Core.Stt;
 
 namespace Yolime.Core.Pipeline;
 
-/// <summary>Facts known only when capture ends: the mode after Shift-cycling and Shift-at-release.</summary>
+/// <summary>
+/// Facts known only when capture ends: Shift held at release. A hold's mode is always Dictate here; a spoken command
+/// at the start of the transcript can change it after STT (<see cref="RunRequest.DetectCommand"/>).
+/// </summary>
 public sealed record RunIntent(Mode Mode, bool PreviewRequested);
 
-/// <param name="InitialMode">The mode at key-down (the app's starting mode), used until <paramref name="Intent"/> resolves.</param>
+/// <param name="InitialMode">The mode at key-down (Dictate for a hold), used until <paramref name="Intent"/> resolves.</param>
 /// <param name="Intent">Completed by the App at key-up. The pipeline awaits it once the audio ends.</param>
 /// <param name="RunId">Lets the caller tie the run to what it captured at key-down (the target window).</param>
 /// <param name="Context">
@@ -19,6 +22,10 @@ public sealed record RunIntent(Mode Mode, bool PreviewRequested);
 /// it: the pipeline awaits it just before the rewrite. Null when nothing will be read.
 /// </param>
 /// <param name="Profile">The target app's style when the hold began; sets tone and section names.</param>
+/// <param name="DetectCommand">
+/// A spoken command at the start of the transcript ("Write a prompt. …") picks the mode and is stripped from the text
+/// the mode works on. On for holds; off for tests that set the mode directly, and for the E2E test-audio run.
+/// </param>
 public sealed record RunRequest(
     IAudioSource Audio,
     Mode InitialMode,
@@ -28,7 +35,8 @@ public sealed record RunRequest(
     Guid? RunId = null,
     Task<CapturedContext?>? Context = null,
     Profile Profile = Profile.Neutral,
-    Func<MicTiming>? Mic = null);
+    Func<MicTiming>? Mic = null,
+    bool DetectCommand = false);
 
 /// <param name="FirstAudioMs">Key-down to the mic's first buffer; null if it never delivered.</param>
 /// <param name="Start">Whether the mic was already open (kept ready) at key-down.</param>
@@ -55,6 +63,12 @@ public sealed record CaptureLevel(float Rms, long ElapsedMs) : PipelineEvent;
 public sealed record TranscriptReady(string Text) : PipelineEvent;
 
 public sealed record RewriteDelta(string Text) : PipelineEvent;
+
+/// <summary>
+/// The run's mode once the transcript is known: the spoken command's, or the mode it started in. Reported for every
+/// transcribed run, before the rewrite, so a Prompt or Reply can read the clipboard then and the notch can say so.
+/// </summary>
+public sealed record ModeResolved(Mode Mode, bool Spoken) : PipelineEvent;
 
 /// <summary>What is running now, so a rejected hold can say what is in progress and how to cancel it.</summary>
 public sealed record CurrentRun(Guid RunId, Mode Mode, Stage Stage, DateTimeOffset StartedUtc);

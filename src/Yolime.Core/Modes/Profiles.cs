@@ -1,5 +1,4 @@
 using Yolime.Core.Output;
-using Yolime.Core.Settings;
 
 namespace Yolime.Core.Modes;
 
@@ -43,27 +42,4 @@ public static class Profiles
 
     public static SectionSet SectionsFor(Profile profile) =>
         profile is Profile.Code or Profile.Terminal ? SectionSet.Coding : SectionSet.Chat;
-}
-
-public static class StartingModes
-{
-    /// <summary>
-    /// The mode a hold starts in: the user's per-app choice, then code and terminal apps in Prompt, then the global
-    /// starting mode. A per-app entry that doesn't name a mode is ignored, not an error.
-    /// </summary>
-    public static Mode For(TargetSnapshot? target, YolimeSettings settings)
-    {
-        if (target is not null)
-        {
-            foreach (var (process, value) in settings.AppStartingModes)
-            {
-                if (string.Equals(process, target.ProcessName, StringComparison.OrdinalIgnoreCase)
-                    && Enum.TryParse<Mode>(value, ignoreCase: true, out var chosen)
-                    && Enum.IsDefined(chosen)
-                    && !int.TryParse(value, out _))
-                    return chosen;
-            }
-        }
-        return Profiles.For(target) is Profile.Code or Profile.Terminal ? Mode.Prompt : settings.StartingMode;
-    }
 }

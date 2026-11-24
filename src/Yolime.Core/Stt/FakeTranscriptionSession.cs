@@ -19,12 +19,31 @@ public sealed class FakeTranscriptionSession(string text, int delayMs = 0) : ITr
     public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 }
 
-public sealed class FakeTranscriptionSessionFactory(string text, int delayMs = 0) : ITranscriptionSessionFactory
+/// <param name="nextFile">
+/// When this file exists as a session is created, its text is that session's transcript, once, and the file goes: a
+/// scenario "says" a spoken command ("Write a reply. …") for one hold without restarting the app.
+/// </param>
+public sealed class FakeTranscriptionSessionFactory(string text, int delayMs = 0, string? nextFile = null) : ITranscriptionSessionFactory
 {
     public SttProviderKind Provider => SttProviderKind.Custom;
 
     public SttReadiness CheckReady() => SttReadiness.Ready;
 
-    public ITranscriptionSession Create(SttSessionOptions options) => new FakeTranscriptionSession(text, delayMs);
+    public ITranscriptionSession Create(SttSessionOptions options) => new FakeTranscriptionSession(Next() ?? text, delayMs);
+
+    private string? Next()
+    {
+        if (nextFile is null || !File.Exists(nextFile)) return null;
+        try
+        {
+            var next = File.ReadAllText(nextFile);
+            File.Delete(nextFile);
+            return next;
+        }
+        catch (IOException)
+        {
+            return null;
+        }
+    }
 }
 #endif

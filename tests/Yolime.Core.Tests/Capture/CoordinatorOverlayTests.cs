@@ -39,7 +39,7 @@ public sealed class CoordinatorOverlayTests : IDisposable
 
     private void Input(HotkeyKind kind, long at)
     {
-        foreach (var e in _machine.Handle(new HotkeyInput(kind, at, true), Mode.Dictate).Effects) _c.Handle(e);
+        foreach (var e in _machine.Handle(new HotkeyInput(kind, at, true)).Effects) _c.Handle(e);
     }
 
     private List<OverlayInput> Seen()
@@ -63,7 +63,8 @@ public sealed class CoordinatorOverlayTests : IDisposable
         await Until(() => Seen().OfType<RunFinished>().Any());
 
         var kinds = Seen().Where(i => i is not Level and not StageBegan and not AppIdentified).Select(i => i.GetType().Name).ToList();
-        Assert.Equal(["RecordingStarted", "RecordingEnded", "TranscriptShown", "RunFinished"], kinds);
+        // ModeChanged follows the transcript on every run: Dictate here, as no command was spoken.
+        Assert.Equal(["RecordingStarted", "RecordingEnded", "TranscriptShown", "ModeChanged", "RunFinished"], kinds);
         Assert.Contains(Seen(), i => i is StageBegan { Stage: Stage.Output });
         // The target is read beside the mic and may land after the notch shows: the name follows when it does.
         Assert.Equal("Word", Seen().OfType<AppIdentified>().Single().AppName);
@@ -97,7 +98,7 @@ public sealed class CoordinatorOverlayTests : IDisposable
         var running = pipeline.RunAsync(new RunRequest(new Never(), Mode.Raw, "x", new TaskCompletionSource<RunIntent>().Task), occupy.Token);
 
         foreach (var (k, at) in new[] { (HotkeyKind.HoldDown, 0L), (HotkeyKind.Tick, 300L) })
-            foreach (var e in _machine.Handle(new HotkeyInput(k, at, true), Mode.Dictate).Effects) c.Handle(e);
+            foreach (var e in _machine.Handle(new HotkeyInput(k, at, true)).Effects) c.Handle(e);
         await Until(() => Seen().OfType<NoticeOnly>().Any(n => n.Notice.Kind == NoticeKind.Busy));
         Assert.Contains(Seen(), i => i is Dismissed);
 
@@ -115,14 +116,25 @@ public sealed class CoordinatorOverlayTests : IDisposable
     }
 
     [Fact]
-    public void AModeCycle_IsReported()
+    public async Task ASpokenMode_IsReported_AfterTheTranscript_WhichLeavesTheCommandOut()
     {
+        _rig.Stt.Text = "Write a prompt. " + PipelineRig.LongTranscript;
         Input(HotkeyKind.HoldDown, 0);
+        _device.Last!.Speak();
         Input(HotkeyKind.Tick, 300);
         Input(HotkeyKind.ShiftDown, 500);
-        Assert.Empty(Seen().OfType<ModeChanged>()); // on the up, so a Shift held at release can preview instead
         Input(HotkeyKind.ShiftUp, 550);
-        Assert.Equal(Mode.Prompt, Seen().OfType<ModeChanged>().Single().Mode);
+        Assert.Empty(Seen().OfType<ModeChanged>()); // a Shift tap no longer changes the mode
+        Input(HotkeyKind.HoldUp, 1500);
+        await Until(() => Seen().OfType<RunFinished>().Any());
+
+        var seen = Seen();
+        var transcript = seen.OfType<TranscriptShown>().Single();
+        Assert.Equal("So I wanted to send a quick note to say the meeting moved to Friday", transcript.Text);
+        var changed = seen.OfType<ModeChanged>().Single();
+        Assert.Equal(Mode.Prompt, changed.Mode);
+        Assert.True(seen.IndexOf(transcript) < seen.IndexOf(changed));
+        Assert.Equal(Mode.Prompt, seen.OfType<RunFinished>().Single().Result.Mode);
     }
 
     [Fact]
@@ -236,7 +248,7 @@ public sealed class CoordinatorOverlayTests : IDisposable
         var c = new CaptureCoordinator(_rig.Build(), _device, new Targets(), _rig.Stt, _rig.History, new Balloons(_balloons), new NoSounds(),
             act => act(machine), _rig.Time, _rig.Log, null, () => _rig.Settings, overlay: i => { lock (_overlay) _overlay.Add(i); });
         foreach (var (k, at) in new[] { (HotkeyKind.HoldDown, 0L), (HotkeyKind.Tick, 300L), (HotkeyKind.Tick, 10_000L) })
-            foreach (var e in machine.Handle(new HotkeyInput(k, at, true), Mode.Dictate).Effects) c.Handle(e);
+            foreach (var e in machine.Handle(new HotkeyInput(k, at, true)).Effects) c.Handle(e);
         Assert.Equal(10, Seen().OfType<CapCountdown>().Single().SecondsLeft);
     }
 

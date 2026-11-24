@@ -32,7 +32,7 @@ internal sealed class ContextReader(ClipboardGuard clipboard, ClipboardFreshness
         return worker;
     }
 
-    public async Task<CapturedContext?> ReadAsync(CancellationToken ct)
+    public async Task<CapturedContext?> ReadSelectionAsync(CancellationToken ct)
     {
         // Slow is not hung: a job that missed its budget may still finish. Only one still running well past it (a
         // provider that is stuck, not a cold first query) gets the worker replaced.
@@ -48,7 +48,12 @@ internal sealed class ContextReader(ClipboardGuard clipboard, ClipboardFreshness
         ct.ThrowIfCancellationRequested();
         if (finished && await job is { Length: > 0 } selected)
             return new CapturedContext(selected.Length > MaxChars ? selected[..MaxChars] : selected, ContextSource.Selection, 0);
+        return null;
+    }
 
+    /// <summary>A fresh user copy, read only once the run is known to be a Prompt or Reply.</summary>
+    public async Task<CapturedContext?> ReadClipboardAsync(CancellationToken ct)
+    {
         try
         {
             // Checked before the open as well: nothing in yolime may read its own pending paste (an offered copy

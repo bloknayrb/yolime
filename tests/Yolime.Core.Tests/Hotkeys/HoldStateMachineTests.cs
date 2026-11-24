@@ -7,7 +7,7 @@ public class HoldStateMachineTests
     private readonly HoldStateMachine _m = new(new HoldOptions());
 
     private (bool Swallow, IReadOnlyList<HoldEffect> Effects) Do(HotkeyKind kind, long at, bool down = true) =>
-        _m.Handle(new HotkeyInput(kind, at, down), Mode.Dictate);
+        _m.Handle(new HotkeyInput(kind, at, down));
 
     private IReadOnlyList<HoldEffect> Tick(long at, bool down = true) => Do(HotkeyKind.Tick, at, down).Effects;
 
@@ -26,7 +26,7 @@ public class HoldStateMachineTests
     [Fact]
     public void Press_StartsCapture_AtKeyDown()
     {
-        Assert.Equal([new StartCapture(Mode.Dictate)], Do(HotkeyKind.HoldDown, 0).Effects);
+        Assert.Equal([new StartCapture()], Do(HotkeyKind.HoldDown, 0).Effects);
         Assert.Equal(HoldState.Pressed, _m.State);
         Assert.Empty(Tick(200));
         Assert.Equal([new ShowRecording()], Tick(300));
@@ -70,26 +70,25 @@ public class HoldStateMachineTests
     }
 
     [Fact]
-    public void Shift_WhileRecording_CyclesOnTheUpEdge_AndSwallowsBoth()
+    public void ShiftTaps_WhileRecording_AreSwallowed_AndChangeNothing()
     {
-        // On the up, so that Shift held at release can mean "preview this mode" instead of having already cycled.
+        // Modes are spoken now. Shift is still swallowed (Ctrl+Shift switches keyboard layouts), and only matters when
+        // it's held at release (preview).
         ToRecording();
-        var down = Do(HotkeyKind.ShiftDown, 400);
-        Assert.True(down.Swallow);
-        Assert.Empty(down.Effects);
-        var up = Do(HotkeyKind.ShiftUp, 450);
-        Assert.True(up.Swallow);
-        Assert.Equal([new CycleMode(Mode.Prompt)], up.Effects);
-        Do(HotkeyKind.ShiftDown, 500);
-        Assert.Equal([new CycleMode(Mode.Reply)], Do(HotkeyKind.ShiftUp, 550).Effects);
-        Do(HotkeyKind.ShiftDown, 600);
-        Assert.Equal([new CycleMode(Mode.Raw)], Do(HotkeyKind.ShiftUp, 650).Effects);
-        Do(HotkeyKind.ShiftDown, 700);
-        Assert.Equal([new CycleMode(Mode.Dictate)], Do(HotkeyKind.ShiftUp, 750).Effects);
+        for (var at = 400; at < 800; at += 100)
+        {
+            var down = Do(HotkeyKind.ShiftDown, at);
+            Assert.True(down.Swallow);
+            Assert.Empty(down.Effects);
+            var up = Do(HotkeyKind.ShiftUp, at + 50);
+            Assert.True(up.Swallow);
+            Assert.Empty(up.Effects);
+        }
+        Assert.Equal([new Commit(CommitReason.Released)], Do(HotkeyKind.HoldUp, 900).Effects);
     }
 
     [Fact]
-    public void Shift_PassedThroughDown_ItsUpIsNeverSwallowed_AndNeverCycles()
+    public void Shift_PassedThroughDown_ItsUpIsNeverSwallowed()
     {
         // Shift went down before the hold (passed to the app); swallowing its up would leave Shift stuck down.
         Assert.False(Do(HotkeyKind.ShiftDown, 0).Swallow);
@@ -100,29 +99,31 @@ public class HoldStateMachineTests
     }
 
     [Fact]
-    public void Shift_AutoRepeat_CyclesOnce()
+    public void Shift_AutoRepeat_GetsTheSameAnswer()
     {
         ToRecording();
-        Do(HotkeyKind.ShiftDown, 400);
-        Assert.Empty(Do(HotkeyKind.ShiftDown, 430).Effects);
+        Assert.True(Do(HotkeyKind.ShiftDown, 400).Swallow);
+        Assert.True(Do(HotkeyKind.ShiftDown, 430).Swallow);
         Assert.Empty(Do(HotkeyKind.ShiftDown, 460).Effects);
-        Assert.Equal([new CycleMode(Mode.Prompt)], Do(HotkeyKind.ShiftUp, 490).Effects);
+        var up = Do(HotkeyKind.ShiftUp, 490);
+        Assert.True(up.Swallow);
+        Assert.Empty(up.Effects);
     }
 
     [Fact]
-    public void AShiftTapRolledOverTheRelease_StillCycles_AndDoesNotPreview()
+    public void AShiftTapRolledOverTheRelease_DoesNotPreview()
     {
-        // Shift and the hold key let go almost together, the hold key first: a tap the user meant as "change mode".
+        // Shift and the hold key let go almost together, the hold key first: a stray tap, not a held Shift.
         ToRecording();
         Do(HotkeyKind.ShiftDown, 400);
-        Assert.Equal([new CycleMode(Mode.Prompt), new Commit(CommitReason.Released)], Do(HotkeyKind.HoldUp, 440).Effects);
+        Assert.Equal([new Commit(CommitReason.Released)], Do(HotkeyKind.HoldUp, 440).Effects);
         var up = Do(HotkeyKind.ShiftUp, 470);
         Assert.True(up.Swallow);
         Assert.Empty(up.Effects);
     }
 
     [Fact]
-    public void ShiftHeldAQuarterSecondAtRelease_PreviewsWithoutCycling()
+    public void ShiftHeldAQuarterSecondAtRelease_Previews()
     {
         ToRecording();
         Do(HotkeyKind.ShiftDown, 400);
@@ -133,7 +134,7 @@ public class HoldStateMachineTests
     }
 
     [Fact]
-    public void AShiftStillHeldFromTheLastPreview_DoesNotCycleTheNextHold()
+    public void AShiftStillHeldFromTheLastPreview_DoesNotPreviewTheNextHold()
     {
         ToRecording();
         Do(HotkeyKind.ShiftDown, 400);
@@ -141,15 +142,16 @@ public class HoldStateMachineTests
         _m.SetProcessing(false);
         // Still on Shift (the user pressed Enter on the card with it down), a new hold starts and Shift comes up. The hook
         // reads Shift as up: a key it swallowed never reaches the async key state.
-        _m.Handle(new HotkeyInput(HotkeyKind.HoldDown, 2000, ShiftPhysicallyDown: false), Mode.Dictate);
+        _m.Handle(new HotkeyInput(HotkeyKind.HoldDown, 2000, ShiftPhysicallyDown: false));
         Tick(2300);
         var up = Do(HotkeyKind.ShiftUp, 2500);
         Assert.True(up.Swallow); // its down was swallowed: the app must see the pair or neither
         Assert.Empty(up.Effects);
+        Assert.Equal([new Commit(CommitReason.Released)], Do(HotkeyKind.HoldUp, 3000).Effects);
     }
 
     [Fact]
-    public void AShiftHeldAcrossAnAbort_DoesNotCycleTheNextHold()
+    public void AShiftHeldAcrossAnAbort_DoesNotPreviewTheNextHold()
     {
         // The run ended under the hold (mic lost, a password field found late): the coordinator resets the machine.
         ToRecording();
@@ -158,6 +160,7 @@ public class HoldStateMachineTests
         Do(HotkeyKind.HoldUp, 500);
         ToRecording(2000);
         Assert.Empty(Do(HotkeyKind.ShiftUp, 2500).Effects);
+        Assert.Equal([new Commit(CommitReason.Released)], Do(HotkeyKind.HoldUp, 3000).Effects);
     }
 
     [Fact]
@@ -169,13 +172,13 @@ public class HoldStateMachineTests
         Assert.Equal([new Commit(CommitReason.Cap)], Tick(120_000));
 
         var m = new HoldStateMachine(new HoldOptions(DoubleTapLatch: true));
-        m.Handle(new(HotkeyKind.HoldDown, 0), Mode.Dictate);
-        m.Handle(new(HotkeyKind.HoldUp, 100), Mode.Dictate);
-        m.Handle(new(HotkeyKind.HoldDown, 300), Mode.Dictate);
-        m.Handle(new(HotkeyKind.HoldUp, 400), Mode.Dictate);
-        m.Handle(new(HotkeyKind.ShiftDown, 1000), Mode.Dictate);
-        m.Handle(new(HotkeyKind.HoldDown, 5000), Mode.Dictate);
-        Assert.Equal([new Commit(CommitReason.LatchEnded)], m.Handle(new(HotkeyKind.HoldUp, 5100), Mode.Dictate).Effects);
+        m.Handle(new(HotkeyKind.HoldDown, 0));
+        m.Handle(new(HotkeyKind.HoldUp, 100));
+        m.Handle(new(HotkeyKind.HoldDown, 300));
+        m.Handle(new(HotkeyKind.HoldUp, 400));
+        m.Handle(new(HotkeyKind.ShiftDown, 1000));
+        m.Handle(new(HotkeyKind.HoldDown, 5000));
+        Assert.Equal([new Commit(CommitReason.LatchEnded)], m.Handle(new(HotkeyKind.HoldUp, 5100)).Effects);
     }
 
     [Fact]
@@ -183,21 +186,11 @@ public class HoldStateMachineTests
     {
         // Its up never reached the hook: without a resync, every later Shift would look like auto-repeat.
         Do(HotkeyKind.ShiftDown, 0);
-        _m.Handle(new HotkeyInput(HotkeyKind.HoldDown, 1000, ShiftPhysicallyDown: false), Mode.Dictate);
+        _m.Handle(new HotkeyInput(HotkeyKind.HoldDown, 1000, ShiftPhysicallyDown: false));
         Tick(1300);
+        // A new down, not auto-repeat: swallowed, and held at release it previews.
         Assert.True(Do(HotkeyKind.ShiftDown, 1400).Swallow);
-        Assert.Equal([new CycleMode(Mode.Prompt)], Do(HotkeyKind.ShiftUp, 1450).Effects);
-    }
-
-    [Fact]
-    public void Shift_WhenCyclingDisabled_IsSwallowedWithoutEffect()
-    {
-        var m = new HoldStateMachine(new HoldOptions(ModeCycling: false));
-        m.Handle(new(HotkeyKind.HoldDown, 0), Mode.Dictate);
-        m.Handle(new(HotkeyKind.Tick, 300), Mode.Dictate);
-        var r = m.Handle(new(HotkeyKind.ShiftDown, 400), Mode.Dictate);
-        Assert.True(r.Swallow);
-        Assert.Empty(r.Effects);
+        Assert.Equal([new Commit(CommitReason.Released, ShiftHeld: true)], Do(HotkeyKind.HoldUp, 1700).Effects);
     }
 
     [Fact]
@@ -254,7 +247,7 @@ public class HoldStateMachineTests
         ToRecording();
         Assert.Equal([new Discard(DiscardReason.SessionEnded)], Do(HotkeyKind.SessionEnded, 500).Effects);
         var m = Latched();
-        Assert.Equal([new Discard(DiscardReason.SessionEnded)], m.Handle(new(HotkeyKind.SessionEnded, 9000), Mode.Dictate).Effects);
+        Assert.Equal([new Discard(DiscardReason.SessionEnded)], m.Handle(new(HotkeyKind.SessionEnded, 9000)).Effects);
     }
 
     [Fact]
@@ -327,13 +320,13 @@ public class HoldStateMachineTests
     public void Watchdog_AStaleReadingOnTheLatchEndingPress_DoesNotCommit()
     {
         var m = new HoldStateMachine(new HoldOptions(DoubleTapLatch: true));
-        m.Handle(new(HotkeyKind.HoldDown, 0), Mode.Dictate);
-        m.Handle(new(HotkeyKind.HoldUp, 100), Mode.Dictate);
-        m.Handle(new(HotkeyKind.HoldDown, 300), Mode.Dictate);
-        m.Handle(new(HotkeyKind.HoldUp, 400), Mode.Dictate);
+        m.Handle(new(HotkeyKind.HoldDown, 0));
+        m.Handle(new(HotkeyKind.HoldUp, 100));
+        m.Handle(new(HotkeyKind.HoldDown, 300));
+        m.Handle(new(HotkeyKind.HoldUp, 400));
         Assert.Equal(HoldState.Latched, m.State);
-        m.Handle(new(HotkeyKind.HoldDown, 5000), Mode.Dictate);
-        Assert.Empty(m.Handle(new(HotkeyKind.Tick, 5001, HoldPhysicallyDown: false), Mode.Dictate).Effects);
+        m.Handle(new(HotkeyKind.HoldDown, 5000));
+        Assert.Empty(m.Handle(new(HotkeyKind.Tick, 5001, HoldPhysicallyDown: false)).Effects);
         Assert.Equal(HoldState.Latched, m.State);
     }
 
@@ -342,7 +335,7 @@ public class HoldStateMachineTests
     {
         // A switch that settles into a discard stays silent: no Start chime or Listening card first.
         Do(HotkeyKind.HoldDown, 0);
-        Assert.Empty(_m.Handle(new HotkeyInput(HotkeyKind.Tick, 300, SwitchPending: true), Mode.Dictate).Effects);
+        Assert.Empty(_m.Handle(new HotkeyInput(HotkeyKind.Tick, 300, SwitchPending: true)).Effects);
         Assert.Equal(HoldState.Pressed, _m.State);
         Assert.Equal([new ShowRecording()], Tick(400));
     }
@@ -375,10 +368,10 @@ public class HoldStateMachineTests
     public void DoubleTap_Latches_WhenEnabled()
     {
         var m = new HoldStateMachine(new HoldOptions(DoubleTapLatch: true));
-        m.Handle(new(HotkeyKind.HoldDown, 0), Mode.Dictate);
-        m.Handle(new(HotkeyKind.HoldUp, 100), Mode.Dictate);
-        Assert.Equal([new StartCapture(Mode.Dictate), new Latched()], m.Handle(new(HotkeyKind.HoldDown, 300), Mode.Dictate).Effects);
-        Assert.Empty(m.Handle(new(HotkeyKind.HoldUp, 400), Mode.Dictate).Effects);
+        m.Handle(new(HotkeyKind.HoldDown, 0));
+        m.Handle(new(HotkeyKind.HoldUp, 100));
+        Assert.Equal([new StartCapture(), new Latched()], m.Handle(new(HotkeyKind.HoldDown, 300)).Effects);
+        Assert.Empty(m.Handle(new(HotkeyKind.HoldUp, 400)).Effects);
         Assert.Equal(HoldState.Latched, m.State);
     }
 
@@ -394,10 +387,10 @@ public class HoldStateMachineTests
     private static HoldStateMachine Latched()
     {
         var m = new HoldStateMachine(new HoldOptions(DoubleTapLatch: true));
-        m.Handle(new(HotkeyKind.HoldDown, 0), Mode.Dictate);
-        m.Handle(new(HotkeyKind.HoldUp, 100), Mode.Dictate);
-        m.Handle(new(HotkeyKind.HoldDown, 300), Mode.Dictate);
-        m.Handle(new(HotkeyKind.HoldUp, 400), Mode.Dictate);
+        m.Handle(new(HotkeyKind.HoldDown, 0));
+        m.Handle(new(HotkeyKind.HoldUp, 100));
+        m.Handle(new(HotkeyKind.HoldDown, 300));
+        m.Handle(new(HotkeyKind.HoldUp, 400));
         return m;
     }
 
@@ -405,13 +398,13 @@ public class HoldStateMachineTests
     public void Latched_IgnoresOtherInput_AndPassesShiftAndEscThrough()
     {
         var m = Latched();
-        Assert.Empty(m.Handle(new(HotkeyKind.OtherKey, 1000), Mode.Dictate).Effects);
-        Assert.Empty(m.Handle(new(HotkeyKind.Mouse, 1100), Mode.Dictate).Effects);
-        Assert.Empty(m.Handle(new(HotkeyKind.Tick, 1200, HoldPhysicallyDown: false), Mode.Dictate).Effects);
+        Assert.Empty(m.Handle(new(HotkeyKind.OtherKey, 1000)).Effects);
+        Assert.Empty(m.Handle(new(HotkeyKind.Mouse, 1100)).Effects);
+        Assert.Empty(m.Handle(new(HotkeyKind.Tick, 1200, HoldPhysicallyDown: false)).Effects);
         // The user is typing in another app: capitals and Esc must work there.
-        Assert.Equal((false, (IReadOnlyList<HoldEffect>)[]), Pair(m.Handle(new(HotkeyKind.ShiftDown, 1300), Mode.Dictate)));
-        Assert.False(m.Handle(new(HotkeyKind.ShiftUp, 1350), Mode.Dictate).Swallow);
-        Assert.Equal((false, (IReadOnlyList<HoldEffect>)[]), Pair(m.Handle(new(HotkeyKind.Esc, 1400), Mode.Dictate)));
+        Assert.Equal((false, (IReadOnlyList<HoldEffect>)[]), Pair(m.Handle(new(HotkeyKind.ShiftDown, 1300))));
+        Assert.False(m.Handle(new(HotkeyKind.ShiftUp, 1350)).Swallow);
+        Assert.Equal((false, (IReadOnlyList<HoldEffect>)[]), Pair(m.Handle(new(HotkeyKind.Esc, 1400))));
         Assert.Equal(HoldState.Latched, m.State);
     }
 
@@ -419,8 +412,8 @@ public class HoldStateMachineTests
     public void Latched_EscWithHoldKeyDown_Cancels()
     {
         var m = Latched();
-        m.Handle(new(HotkeyKind.HoldDown, 5000), Mode.Dictate);
-        var r = m.Handle(new(HotkeyKind.Esc, 5100), Mode.Dictate);
+        m.Handle(new(HotkeyKind.HoldDown, 5000));
+        var r = m.Handle(new(HotkeyKind.Esc, 5100));
         Assert.True(r.Swallow);
         Assert.Equal([new Discard(DiscardReason.Esc)], r.Effects);
     }
@@ -429,21 +422,21 @@ public class HoldStateMachineTests
     public void Latched_ForegroundChange_CommitsInsteadOfDropping()
     {
         var m = Latched();
-        Assert.Equal([new Commit(CommitReason.ForegroundChanged)], m.Handle(new(HotkeyKind.ForegroundChanged, 9000), Mode.Dictate).Effects);
+        Assert.Equal([new Commit(CommitReason.ForegroundChanged)], m.Handle(new(HotkeyKind.ForegroundChanged, 9000)).Effects);
     }
 
     [Fact]
     public void Latched_TapEnds()
     {
         var m = Latched();
-        Assert.Empty(m.Handle(new(HotkeyKind.HoldDown, 5000), Mode.Dictate).Effects);
-        Assert.Equal([new Commit(CommitReason.LatchEnded)], m.Handle(new(HotkeyKind.HoldUp, 5100), Mode.Dictate).Effects);
+        Assert.Empty(m.Handle(new(HotkeyKind.HoldDown, 5000)).Effects);
+        Assert.Equal([new Commit(CommitReason.LatchEnded)], m.Handle(new(HotkeyKind.HoldUp, 5100)).Effects);
     }
 
     [Fact]
     public void LatchedCap_Commits()
     {
-        Assert.Equal([new Commit(CommitReason.Cap)], Latched().Handle(new(HotkeyKind.Tick, 300_300, false), Mode.Dictate).Effects);
+        Assert.Equal([new Commit(CommitReason.Cap)], Latched().Handle(new(HotkeyKind.Tick, 300_300, false)).Effects);
     }
 
     [Fact]
@@ -497,7 +490,7 @@ public class HoldStateMachineTests
         // Still the same physical press: repeats are ignored, its release does nothing, the next press starts fresh.
         Assert.Empty(Do(HotkeyKind.HoldDown, 2030).Effects);
         Assert.Empty(Do(HotkeyKind.HoldUp, 2500).Effects);
-        Assert.Equal([new StartCapture(Mode.Dictate)], Do(HotkeyKind.HoldDown, 3000).Effects);
+        Assert.Equal([new StartCapture()], Do(HotkeyKind.HoldDown, 3000).Effects);
     }
 
     [Fact]
@@ -510,7 +503,7 @@ public class HoldStateMachineTests
         // The hook's watchdog sees the key physically up and reports the missed release.
         Assert.Empty(Do(HotkeyKind.HoldUp, 5000).Effects);
         Assert.False(_m.HoldKeyDown);
-        Assert.Equal([new StartCapture(Mode.Dictate)], Do(HotkeyKind.HoldDown, 6000).Effects);
+        Assert.Equal([new StartCapture()], Do(HotkeyKind.HoldDown, 6000).Effects);
     }
 
     [Fact]
@@ -521,16 +514,7 @@ public class HoldStateMachineTests
         _m.Abort();
         Assert.Equal(HoldState.Idle, _m.State);
         Assert.Empty(Do(HotkeyKind.HoldUp, 900).Effects);
-        Assert.Equal([new StartCapture(Mode.Dictate)], Do(HotkeyKind.HoldDown, 2000).Effects);
-    }
-
-    [Fact]
-    public void StartingMode_IsUsed()
-    {
-        Assert.Equal([new StartCapture(Mode.Prompt)], _m.Handle(new HotkeyInput(HotkeyKind.HoldDown, 0), Mode.Prompt).Effects);
-        Tick(300);
-        Do(HotkeyKind.ShiftDown, 400);
-        Assert.Equal([new CycleMode(Mode.Reply)], Do(HotkeyKind.ShiftUp, 450).Effects);
+        Assert.Equal([new StartCapture()], Do(HotkeyKind.HoldDown, 2000).Effects);
     }
 
     private static (bool, IReadOnlyList<HoldEffect>) Pair((bool Swallow, IReadOnlyList<HoldEffect> Effects) r) => (r.Swallow, r.Effects);

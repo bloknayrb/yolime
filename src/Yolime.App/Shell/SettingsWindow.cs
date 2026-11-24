@@ -283,8 +283,8 @@ internal sealed class SettingsWindow : Window
             S.KeepMicReady, on => Save(s => s with { KeepMicReady = on }));
 
         Toggle("Sounds", "Short tones when recording starts and stops, and on errors.", S.Sounds, on => Save(s => s with { Sounds = on }));
-        Toggle("Mode cues", "Beeps that say which mode a Shift tap switched to while recording (1 Dictate, 2 Prompt, 3 Reply, 4 Raw). Needs Sounds on.",
-            S.ModeCycleCues, on => Save(s => s with { ModeCycleCues = on }));
+        Toggle("Command cues", "Beeps that confirm a spoken command before anything is pasted (2 Prompt, 3 Reply, 4 Raw). Needs Sounds on.",
+            S.CommandCues, on => Save(s => s with { CommandCues = on }));
 
         // Start with Windows
         var status = StartupRegistry.Status();
@@ -516,32 +516,14 @@ internal sealed class SettingsWindow : Window
     {
         Heading("Apps & words");
 
-        var modes = Enum.GetValues<Mode>();
-        var starting = new ComboBox { ItemsSource = modes.Select(m => m.ToString()).ToList(), SelectedIndex = Array.IndexOf(modes, S.StartingMode) };
-        starting.SelectionChanged += (_, _) => Save(s => s with { StartingMode = modes[starting.SelectedIndex] });
-        Row("Starting mode", starting, Help("The mode a hold starts in, unless the app below or a terminal says otherwise."));
-
-        _page.Children.Add(new TextBlock { Text = "Per-app starting modes", Style = (Style)Application.Current.Resources["BodyStrongTextBlockStyle"] });
-        foreach (var (app, mode) in S.AppStartingModes.OrderBy(p => p.Key, StringComparer.OrdinalIgnoreCase))
-        {
-            var remove = new Button { Content = "Remove" };
-            var name = app;
-            remove.Click += (_, _) =>
-            {
-                if (Save(s => SettingsEdits.WithAppMode(s, name, null))) Show(Apps);
-            };
-            _page.Children.Add(Horizontal(new TextBlock { Text = $"{app} \u2192 {mode}", Width = 280, VerticalAlignment = VerticalAlignment.Center }, remove));
-        }
-        var process = new TextBox { PlaceholderText = "Process name, e.g. slack", Width = 220 };
-        var pick = new ComboBox { ItemsSource = modes.Select(m => m.ToString()).ToList(), SelectedIndex = 0 };
-        var add = new Button { Content = "Add" };
-        add.Click += (_, _) =>
-        {
-            if (string.IsNullOrWhiteSpace(process.Text)) return;
-            var text = process.Text;
-            if (Save(s => SettingsEdits.WithAppMode(s, text, modes[pick.SelectedIndex]))) Show(Apps);
-        };
-        _page.Children.Add(Horizontal(process, pick, add));
+        // Modes are spoken, not set: every hold is Dictate unless it starts with one of these.
+        _page.Children.Add(new TextBlock { Text = "Spoken commands", Style = (Style)Application.Current.Resources["BodyStrongTextBlockStyle"] });
+        _page.Children.Add(Help(
+            "Every hold is Dictate: what you say is cleaned up and pasted. To get something else, start the hold with a command:\n"
+            + "\u2022 Prompt: \u201cwrite a prompt\u201d, \u201cwrite me a prompt\u201d, \u201cmake this a prompt\u201d, or \u201cprompt\u201d then a pause.\n"
+            + "\u2022 Reply (to the text you selected or just copied): \u201cwrite a reply\u201d, \u201cwrite me a reply\u201d, \u201cdraft a reply\u201d, \u201cwrite a response\u201d, or \u201creply\u201d then a pause.\n"
+            + "\u2022 Raw (exactly as heard): \u201craw\u201d or \u201cverbatim\u201d then a pause, or \u201craw mode\u201d.\n"
+            + "Commands count only at the very start, and only in English. A missed or misheard one can be re-run in another mode from History."));
 
         var words = new TextBox
         {
@@ -587,7 +569,7 @@ internal sealed class SettingsWindow : Window
             previews.Add(box);
         }
         _page.Children.Add(Horizontal([.. previews]));
-        _page.Children.Add(Help("Or keep Shift held as you let go of the hold key to preview that run; a quick Shift tap changes mode instead. With Paste automatically off, a preview is how to paste a single run."));
+        _page.Children.Add(Help("Or keep Shift held as you let go of the hold key to preview that run. Previewing Prompt or Reply lets you check a spoken command was heard before anything is inserted. With Paste automatically off, a preview is how to paste a single run."));
 
         var days = new NumberBox { Minimum = 1, Maximum = 3650, Value = S.HistoryRetentionDays, SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Inline, Width = 160 };
         var daysHelp = Help("Older runs are deleted when yolime starts, and right away when you lower this.");

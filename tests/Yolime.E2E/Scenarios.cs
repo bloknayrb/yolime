@@ -12,6 +12,16 @@ internal sealed partial class Scenarios(TargetForm form)
 
     /// <summary>What the E2E rewriter returns for <see cref="Spoken"/>.</summary>
     private const string Transcript = "rewritten: " + Spoken;
+
+    /// <summary>
+    /// What the E2E rewriter returns for <see cref="Spoken"/> after a spoken command: the command comes off and the
+    /// words after it start a sentence.
+    /// </summary>
+    private const string Commanded = "rewritten: P" + "lease send the weekly report to the whole team before noon tomorrow";
+
+    private const string SayPrompt = "Write a prompt. " + Spoken;
+    private const string SayReply = "Write a reply. " + Spoken;
+    private const string SayRaw = "Raw. " + Spoken;
     private const string Sentinel = "sentinel-clipboard";
     private const string AppResults = @"C:\results\app";
 
@@ -28,7 +38,8 @@ internal sealed partial class Scenarios(TargetForm form)
         new("TapDuringProcessing_Cancels", TapDuringProcessingCancels),
         new("CopyDuringRestore_NotOverwritten", CopyDuringRestore),
         new("Image_Restored", ImageRestored),
-        new("PromptViaShift_Rewrites", PromptViaShift),
+        new("PromptBySpokenCommand_Rewrites", PromptBySpokenCommand),
+        new("ShiftTapMidHold_ChangesNothing", ShiftTapChangesNothing),
         new("ReplyFromSelection_UsesIt", ReplyFromSelection),
         new("SecretOnClipboard_Skipped", SecretOnClipboardSkipped),
         new("FreshCopy_UsedAsReplyContext", FreshCopyUsed),
@@ -42,21 +53,40 @@ internal sealed partial class Scenarios(TargetForm form)
         new("Card_EscDismisses_AndReachesTheApp", EscDismissesCard),
     ];
 
-    /// <summary>Hold, tap Shift once (Dictate → Prompt), let go: the prompt is rewritten and pasted.</summary>
-    private string? PromptViaShift()
+    /// <summary>Hold and say "Write a prompt. …": the words after the command are rewritten as a prompt and pasted.</summary>
+    private string? PromptBySpokenCommand()
     {
         if (Prepare(form.Box1) is { } fail) return fail;
         var runs = RunCount();
-        HoldCycling(cycles: 1);
+        HoldSaying(SayPrompt);
         if (!WaitRun(runs)) return "no run finished";
         if (LastRun("mode") != "Prompt") return $"mode {LastRun("mode")}";
         if (LastRun("rewriteStage") != "Ok") return $"rewrite {LastRun("rewriteStage")}";
         // Prompt appends the context below the text; a single-line box keeps the first line.
-        return Program.Wait(() => form.On(() => form.Box1.Text).StartsWith(Transcript, StringComparison.Ordinal), 4000)
+        return Program.Wait(() => form.On(() => form.Box1.Text).StartsWith(Commanded, StringComparison.Ordinal), 4000)
             ? null : $"box1 is '{form.On(() => form.Box1.Text)}'";
     }
 
-    /// <summary>A selected message, two Shift taps (→ Reply): the reply replaces the selection, using it as context.</summary>
+    /// <summary>Shift taps during a hold used to cycle the mode; now every hold is Dictate unless a command is spoken.</summary>
+    private string? ShiftTapChangesNothing()
+    {
+        if (Prepare(form.Box1) is { } fail) return fail;
+        var runs = RunCount();
+        Input.Down(Input.RCtrl);
+        Thread.Sleep(500); // past the 300 ms shortcut window
+        for (var i = 0; i < 2; i++)
+        {
+            Input.Tap(Input.LShift);
+            Thread.Sleep(150);
+        }
+        Thread.Sleep(900);
+        Input.Up(Input.RCtrl);
+        if (!WaitRun(runs)) return "no run finished";
+        if (LastRun("mode") != "Dictate") return $"mode {LastRun("mode")}: a Shift tap changed it";
+        return Program.Wait(() => form.On(() => form.Box1.Text) == Transcript, 4000) ? null : $"box1 is '{form.On(() => form.Box1.Text)}'";
+    }
+
+    /// <summary>A selected message and "Write a reply. …": the reply replaces the selection, using it as context.</summary>
     private string? ReplyFromSelection()
     {
         if (Prepare(form.Box1) is { } fail) return fail;
@@ -66,12 +96,12 @@ internal sealed partial class Scenarios(TargetForm form)
             form.Box1.SelectAll();
         });
         var runs = RunCount();
-        HoldCycling(cycles: 2);
+        HoldSaying(SayReply);
         if (!WaitRun(runs)) return "no run finished";
         if (LastRun("mode") != "Reply") return $"mode {LastRun("mode")}";
         if (LastRun("contextSource") != "Selection") return $"context {LastRun("contextSource")}";
         if (LastRun("contextChars") != "33") return $"context was {LastRun("contextChars")} chars, not the whole selection";
-        return Program.Wait(() => form.On(() => form.Box1.Text) == Transcript, 4000) ? null : $"box1 is '{form.On(() => form.Box1.Text)}'";
+        return Program.Wait(() => form.On(() => form.Box1.Text) == Commanded, 4000) ? null : $"box1 is '{form.On(() => form.Box1.Text)}'";
     }
 
     /// <summary>A key on the clipboard is never sent as Reply context, and the user is told.</summary>
@@ -80,7 +110,7 @@ internal sealed partial class Scenarios(TargetForm form)
         if (Prepare(form.Box1) is { } fail) return fail;
         SetClip("my key ghp_" + new string('a', 36));
         var runs = RunCount();
-        HoldCycling(cycles: 2);
+        HoldSaying(SayReply);
         if (!WaitRun(runs)) return "no run finished";
         if (LastRun("contextSource") is { } source) return $"context was used: {source}";
         if (LastRun("contextNote") != "Skipped") return $"note {LastRun("contextNote")}";
@@ -93,14 +123,14 @@ internal sealed partial class Scenarios(TargetForm form)
         if (Prepare(form.Box1) is { } fail) return fail;
         SetClip("Can you send the slides?");
         var runs = RunCount();
-        HoldCycling(cycles: 2);
+        HoldSaying(SayReply);
         if (!WaitRun(runs)) return "no run finished";
         if (LastRun("contextSource") != "Clipboard") return $"context {LastRun("contextSource")}";
         return LastRun("contextChars") == "24" ? null : $"context was {LastRun("contextChars")} chars";
     }
 
     /// <summary>
-    /// Raw previews in the E2E settings: hold, cycle three times to Raw, let go, then answer the card with a key. The
+    /// Raw previews in the E2E settings: hold, say "Raw. …", let go, then answer the card with a key. The
     /// key must act on the card (or, for a stray key, reach the box), and the clipboard must be exactly as expected.
     /// </summary>
     private string? PreviewKey(ushort key, string box, string clip, string delivery)
@@ -108,7 +138,7 @@ internal sealed partial class Scenarios(TargetForm form)
         if (Prepare(form.Box1) is { } fail) return fail;
         var runs = RunCount();
         var previews = Count("Preview");
-        HoldCycling(cycles: 3);
+        HoldSaying(SayRaw);
         // Counted, not just "seen": the overlay log holds every earlier scenario's states too.
         if (!Program.Wait(() => Count("Preview") > previews, 6000)) return "the preview card never showed";
         Thread.Sleep(300);
@@ -201,13 +231,13 @@ internal sealed partial class Scenarios(TargetForm form)
         });
         var runs = RunCount();
         var pending = Count("PendingPaste");
-        HoldCycling(cycles: 2);
+        HoldSaying(SayReply);
         if (!Program.Wait(() => Count("PendingPaste") > pending, 8000)) return "never asked where the reply should go";
         var centre = form.On(() => form.Box2.PointToScreen(new Point(form.Box2.Width / 2, form.Box2.Height / 2)));
         Input.Click(centre.X, centre.Y);
         if (!WaitRun(runs)) return "no run finished";
         if (LastRun("delivery") != "Pasted") return $"delivery {LastRun("delivery")}";
-        return Program.Wait(() => form.On(() => form.Box2.Text) == Transcript, 3000) ? null : $"box2 is '{form.On(() => form.Box2.Text)}'";
+        return Program.Wait(() => form.On(() => form.Box2.Text) == Commanded, 3000) ? null : $"box2 is '{form.On(() => form.Box2.Text)}'";
     }
 
     /// <summary>How many times the overlay has entered a state. Read with sharing: the app appends as it goes.</summary>
@@ -231,16 +261,15 @@ internal sealed partial class Scenarios(TargetForm form)
         return 0;
     }
 
-    private static void HoldCycling(int cycles)
+    /// <summary>
+    /// A hold whose transcript is <paramref name="transcript"/>: the app's fake STT reads "next-transcript" once, at the
+    /// next session, so a scenario can speak a command ("Write a reply. …") without restarting the app.
+    /// </summary>
+    private static void HoldSaying(string transcript)
     {
+        File.WriteAllText(Path.Combine(AppResults, "next-transcript"), transcript);
         Input.Down(Input.RCtrl);
-        Thread.Sleep(500); // past the 300 ms shortcut window
-        for (var i = 0; i < cycles; i++)
-        {
-            Input.Tap(Input.LShift);
-            Thread.Sleep(150);
-        }
-        Thread.Sleep(900);
+        Thread.Sleep(1400); // well past the 300 ms shortcut window
         Input.Up(Input.RCtrl);
     }
 

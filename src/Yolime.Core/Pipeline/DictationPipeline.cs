@@ -110,7 +110,10 @@ public sealed class DictationPipeline(
                 session.PushAudio(pcm);
                 run.AudioBytes = pcm.Length;
                 run.MarkAudioEnd();
-                return await TranscribeAndDeliverAsync(run, session, new RunIntent(run.Mode, false), RowContext(row), RowProfile(row), ct);
+                // No mode given: the transcript's spoken command (if any) picks it again. A mode given keeps it, and
+                // its command words come off only if they asked for that same mode.
+                return await TranscribeAndDeliverAsync(run, session, new RunIntent(run.Mode, false), RowContext(row), RowProfile(row),
+                    asMode is null ? Commands.Detect : Commands.StripOnly, ct);
             }
             catch (Exception ex) when (!(ex is OperationCanceledException && ct.IsCancellationRequested))
             {
@@ -133,7 +136,8 @@ public sealed class DictationPipeline(
         try
         {
             var row = history.Get(historyId);
-            if (row?.RawText is not { Length: > 0 } raw) throw new InvalidOperationException("this run has no transcript to retry");
+            if (row?.RawText is not { Length: > 0 } transcript) throw new InvalidOperationException("this run has no transcript to retry");
+            var raw = Content(transcript, row.Mode, row.Context is not null);
             var run = new Run(this, Guid.NewGuid(), row.Mode, progress) { HistoryId = historyId, HistoryWritten = true, Previous = row, RawText = raw };
             try
             {
@@ -172,15 +176,17 @@ public sealed class DictationPipeline(
         {
             if (settings().HistoryPaused) throw new InvalidOperationException("history is paused");
             var source = history.Get(historyId);
-            if (source?.RawText is not { Length: > 0 } raw) throw new InvalidOperationException("this run has no transcript to re-run");
+            if (source?.RawText is not { Length: > 0 } transcript) throw new InvalidOperationException("this run has no transcript to re-run");
             var usesContext = asMode is Mode.Prompt or Mode.Reply;
+            // History keeps the command words: a re-run in the mode they asked for drops them, any other keeps them all.
+            var raw = Content(transcript, asMode, usesContext && source.Context is not null);
             var copy = new HistoryRow
             {
                 RunId = Guid.NewGuid(),
                 StartedUtc = source.StartedUtc,
                 Mode = asMode,
                 ProcessName = source.ProcessName,
-                RawText = raw,
+                RawText = transcript,
                 Context = usesContext ? source.Context : null,
                 ContextSource = usesContext ? source.ContextSource : null,
                 // Chains stay flat: a re-run of a re-run points at the original, so deleting it takes them all.
@@ -226,6 +232,18 @@ public sealed class DictationPipeline(
         {
             Exit();
         }
+    }
+
+    /// <summary>
+    /// The words a kept transcript gives <paramref name="mode"/> to work on. Nothing left (a command alone) can only be
+    /// a Reply drafted from its context.
+    /// </summary>
+    private static string Content(string transcript, Mode mode, bool hasContext)
+    {
+        var content = ModeCommands.ContentFor(transcript, mode);
+        if (content.Trim().Length == 0 && !(mode == Mode.Reply && hasContext))
+            throw new InvalidOperationException("this run has nothing after its command");
+        return content;
     }
 
     private static Task<CapturedContext?>? RowContext(HistoryRow row) => row.Context is null ? null
@@ -354,11 +372,25 @@ public sealed class DictationPipeline(
             run.TryHistory(() => history.Update(run.HistoryId!.Value, r => r with { Outcome = RunOutcome.NoSpeech, Stages = run.Stages }));
             return run.Finish(RunOutcome.NoSpeech);
         }
-        return await TranscribeAndDeliverAsync(run, session, intent, request.Context, request.Profile, ct);
+        return await TranscribeAndDeliverAsync(run, session, intent, request.Context, request.Profile,
+            request.DetectCommand ? Commands.Detect : Commands.Keep, ct);
+    }
+
+    /// <summary>What a run does with a spoken command at the start of its transcript.</summary>
+    private enum Commands
+    {
+        /// <summary>Leave the transcript as it is (tests that set the mode, the E2E test-audio run).</summary>
+        Keep,
+
+        /// <summary>The command picks the mode, and comes off the text the mode works on.</summary>
+        Detect,
+
+        /// <summary>The mode is already chosen; a command for that same mode comes off the text.</summary>
+        StripOnly,
     }
 
     private async Task<RunResult> TranscribeAndDeliverAsync(Run run, ITranscriptionSession session, RunIntent intent,
-        Task<CapturedContext?>? pendingContext, Profile profile, CancellationToken ct)
+        Task<CapturedContext?>? pendingContext, Profile profile, Commands commands, CancellationToken ct)
     {
         // --- STT ---
         run.SetStage(Stage.Stt);
@@ -403,17 +435,59 @@ public sealed class DictationPipeline(
             run.TryHistory(() => history.Update(run.HistoryId!.Value, r => r with { Outcome = RunOutcome.NoSpeech, Stages = run.Stages }));
             return run.Finish(RunOutcome.NoSpeech);
         }
-        run.RawText = raw;
-        run.Report(new TranscriptReady(raw));
+        // A spoken command ("Write a reply. …") picks the mode. History keeps every word that was said, so a misheard
+        // command can be re-run as Dictate; the mode works on the words after the command.
+        var content = raw;
+        var spoken = false;
+        if (commands != Commands.Keep && ModeCommands.Match(raw) is { } command)
+        {
+            if (commands == Commands.Detect)
+            {
+                run.Mode = command.Mode;
+                run.RefreshCurrent();
+                spoken = true;
+            }
+            if (command.Mode == run.Mode) content = ModeCommands.Strip(raw, command);
+        }
+        run.RawText = content;
+        run.Report(new TranscriptReady(content));
+        run.Report(new ModeResolved(run.Mode, spoken));
+        if (spoken) log.Write(LogEvent.ModeCommand, LogField.Tag("mode", run.Mode));
         run.Done(Stage.Stt, StageStatus.Ok);
         run.TryHistory(() => history.Update(run.HistoryId!.Value, r => r with { RawText = raw, SttError = null, Mode = run.Mode }));
+
+        var known = default(KnownContext);
+        if (spoken && content.Trim().Length == 0)
+        {
+            // "Write a reply" alone drafts from the message it's replying to; with no message, or for any other
+            // command, there's nothing to work on, and a retry would only match the command again.
+            var context = run.Mode == Mode.Reply ? await ContextAsync(run, pendingContext) : null;
+            if (context is null) return CommandOnly(run);
+            known = new KnownContext(context);
+        }
         // The WAV stays until delivery has finished: a cancel tap at any point after the recording ended keeps it for
         // Retry (Bryan, 2026-10-28), and a crash before delivery leaves a retryable recording.
-        return await RewriteAndDeliverAsync(run, raw, intent, pendingContext, profile, ct);
+        return await RewriteAndDeliverAsync(run, content, intent, pendingContext, profile, ct, known);
     }
 
+    /// <summary>A context already read and filtered before the rewrite (an empty Reply checked for one).</summary>
+    private readonly record struct KnownContext(CapturedContext? Value)
+    {
+        public bool Ready => Value is not null;
+    }
+
+    private RunResult CommandOnly(Run run)
+    {
+        run.Done(Stage.Rewrite, StageStatus.Skipped);
+        run.TryHistory(() => history.Update(run.HistoryId!.Value, r => r with { Outcome = RunOutcome.CommandOnly, Stages = run.Stages }));
+        // Not retryable: a new transcription would hear the same command with nothing after it.
+        if (run.HistoryWritten) run.DeleteWav();
+        return run.Finish(RunOutcome.CommandOnly);
+    }
+
+    /// <param name="raw">The text the mode works on: the transcript without a spoken command.</param>
     private async Task<RunResult> RewriteAndDeliverAsync(Run run, string raw, RunIntent intent,
-        Task<CapturedContext?>? pendingContext, Profile profile, CancellationToken ct)
+        Task<CapturedContext?>? pendingContext, Profile profile, CancellationToken ct, KnownContext known = default)
     {
         if (ct.IsCancellationRequested) return Cancelled(run, Stage.Rewrite);
 
@@ -442,9 +516,22 @@ public sealed class DictationPipeline(
         {
             run.SetStage(Stage.Rewrite);
             run.Timing = run.Timing with { RewriteModel = RewriteModelKinds.Of(def.Model) };
-            var context = def.UsesContext ? await ContextAsync(run, pendingContext) : null;
+            var context = !def.UsesContext ? null : known.Ready ? known.Value : await ContextAsync(run, pendingContext);
             var rewritten = await RewriteAsync(run, def, raw, context, profile, ct);
             if (rewritten is null && ct.IsCancellationRequested) return Cancelled(run, Stage.Rewrite);
+            if (rewritten is null && raw.Trim().Length == 0)
+            {
+                // A Reply drafted from its context alone: there's no transcript to fall back to. Retry rewrites again.
+                run.Done(Stage.Rewrite, StageStatus.Failed);
+                run.TryHistory(() => history.Update(run.HistoryId!.Value, r => r with
+                {
+                    Outcome = RunOutcome.RewriteFailed,
+                    RewriteError = run.RewriteError?.ToString(),
+                    Stages = run.Stages,
+                }));
+                if (run.HistoryWritten) run.DeleteWav();
+                return run.Finish(RunOutcome.RewriteFailed);
+            }
             if (rewritten is null)
             {
                 // Spec fallbacks: Dictate still pastes the raw transcript; Prompt and Reply leave it on the clipboard,
@@ -781,6 +868,12 @@ public sealed class DictationPipeline(
         {
             _stageStart = _p.Time.GetTimestamp();
             _p._current = new CurrentRun(Id, Mode, stage, StartedUtc);
+        }
+
+        /// <summary>The mode changed (a spoken command): a hold rejected as Busy now names the right one.</summary>
+        public void RefreshCurrent()
+        {
+            if (_p._current is { } current && current.RunId == Id) _p._current = current with { Mode = Mode };
         }
 
         public void Done(Stage stage, StageStatus status)

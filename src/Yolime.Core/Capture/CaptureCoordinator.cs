@@ -51,17 +51,25 @@ public interface ISounds
 {
     void Play(SoundKind sound);
 
-    /// <summary>Says which mode a Shift tap switched to without the overlay: 1 beep for Dictate up to 4 for Raw.</summary>
+    /// <summary>Says which mode a spoken command picked, before anything pastes: 2 beeps for Prompt up to 4 for Raw.</summary>
     void PlayModeCue(Mode mode);
 }
 
 /// <summary>
 /// Reads what a Reply or Prompt is about: the focused element's selection, else a fresh user copy on the clipboard.
-/// It never sends keys to the target app. Returns null when there is nothing usable.
+/// It never sends keys to the target app. Each returns null when there is nothing usable.
 /// </summary>
+/// <remarks>
+/// Split in two because the mode is only known once the transcript is in. The selection is read during every hold,
+/// while the target still has focus; it stays in memory and is used only if the run turns out to be a Prompt or
+/// Reply. The clipboard is opened only then, so plain dictation never opens it (opening it makes the app that copied
+/// render what it was holding back, and would contend with yolime's own paste).
+/// </remarks>
 public interface IContextReader
 {
-    Task<CapturedContext?> ReadAsync(CancellationToken ct);
+    Task<CapturedContext?> ReadSelectionAsync(CancellationToken ct);
+
+    Task<CapturedContext?> ReadClipboardAsync(CancellationToken ct);
 }
 
 /// <summary>
@@ -148,18 +156,11 @@ public sealed class CaptureCoordinator(
         {
             switch (effect)
             {
-                case StartCapture s: Start(s.Mode); break;
+                case StartCapture: Start(Mode.Dictate); break;
                 case ShowRecording: Show(); break;
                 case Latched:
                     if (_current is { } latched) latched.Latched = true;
                     Show();
-                    break;
-                case CycleMode c when _current is { } cur:
-                    cur.Mode = c.Next;
-                    Report(new ModeChanged(c.Next));
-                    var current = settings?.Invoke();
-                    if (current is null || (current.Sounds && current.ModeCycleCues)) sounds.PlayModeCue(c.Next);
-                    if (cur.Shown) ReadContextIfNeeded(cur);
                     break;
                 case Commit c: CommitCurrent(c); break;
                 case Discard d: DiscardCurrent(d.Reason, d.FromWatchdog); break;
@@ -392,7 +393,7 @@ public sealed class CaptureCoordinator(
         var micReady = PlayStartWhenAudioFlows(c);
         RecordingChanged?.Invoke(true);
         Report(new RecordingStarted(c.Mode, AppOf(c), c.Latched, NowMs, c.RunId, micReady));
-        ReadContextIfNeeded(c);
+        ReadSelection(c);
         c.Run = RunAsync(c);
     }
 
@@ -424,27 +425,59 @@ public sealed class CaptureCoordinator(
     }
 
     /// <summary>
-    /// Starts the context read the first time the hold is in Prompt or Reply: at 300 ms, or on the cycle into one.
-    /// Dictate and Raw never read it. It runs beside the recording; the pipeline waits for it only before the rewrite.
+    /// Reads the selection at 300 ms, beside the recording, for every hold: the mode isn't known until the transcript
+    /// is. It stays in memory and is used, sent or stored only if the run becomes a Prompt or Reply.
     /// </summary>
-    private void ReadContextIfNeeded(Capture c)
+    private void ReadSelection(Capture c)
     {
-        if (c.ContextStarted || contextReader is null || c.Mode is not (Mode.Prompt or Mode.Reply)) return;
-        c.ContextStarted = true;
+        if (contextReader is null) return;
         var reader = contextReader;
-        _ = Task.Run(async () =>
+        c.Selection = Task.Run(async () =>
         {
             try
             {
-                var context = await reader.ReadAsync(c.Cts.Token);
-                c.Context.TrySetResult(context);
-                ReportContext(context);
+                return await reader.ReadSelectionAsync(c.Cts.Token);
             }
             catch (Exception ex)
             {
                 if (ex is not OperationCanceledException) log.Write(LogEvent.StageFailed, LogField.Tag("stage", Stage.Rewrite), LogField.Error(ex));
-                c.Context.TrySetResult(null);
+                return null;
             }
+        });
+    }
+
+    /// <summary>
+    /// The transcript is in and the run's mode known. A Prompt or Reply gets its context now: the selection read
+    /// during the hold, else a fresh copy from the clipboard (opened only now). Any other mode needs none.
+    /// </summary>
+    private void OnModeResolved(Capture c, ModeResolved resolved)
+    {
+        lock (_gate) c.Mode = resolved.Mode;
+        if (resolved.Spoken && resolved.Mode != Mode.Dictate)
+        {
+            var current = settings?.Invoke();
+            if (current is null || (current.Sounds && current.CommandCues)) sounds.PlayModeCue(resolved.Mode);
+        }
+        if (resolved.Mode is not (Mode.Prompt or Mode.Reply) || contextReader is null)
+        {
+            c.Context.TrySetResult(null);
+            return;
+        }
+        var reader = contextReader;
+        _ = Task.Run(async () =>
+        {
+            CapturedContext? context = null;
+            try
+            {
+                context = c.Selection is { } selection ? await selection : null;
+                context ??= await reader.ReadClipboardAsync(c.Cts.Token);
+            }
+            catch (Exception ex)
+            {
+                if (ex is not OperationCanceledException) log.Write(LogEvent.StageFailed, LogField.Tag("stage", Stage.Rewrite), LogField.Error(ex));
+            }
+            c.Context.TrySetResult(context);
+            ReportContext(c, context);
         });
     }
 
@@ -452,17 +485,17 @@ public sealed class CaptureCoordinator(
     /// What the notch says the run is about. The snippet goes through the same filter the run will use, so a key
     /// on the clipboard is never displayed even though it's never sent.
     /// </summary>
-    private void ReportContext(CapturedContext? context)
+    private void ReportContext(Capture c, CapturedContext? context)
     {
         if (overlay is null) return;
         if (context is null || ContextFilter.Apply(context.Text, context.Source, sensitiveMarkers: false) is not { } filtered)
         {
-            Report(new ContextShown(null, null, 0, Skipped: false));
+            Report(new ContextShown(null, null, 0, Skipped: false, c.RunId));
             return;
         }
         Report(filtered.Verdict == ContextVerdict.Rejected
-            ? new ContextShown(null, null, 0, Skipped: true)
-            : new ContextShown(filtered.Text, context.Source, context.AgeMs, Skipped: false));
+            ? new ContextShown(null, null, 0, Skipped: true, c.RunId)
+            : new ContextShown(filtered.Text, context.Source, context.AgeMs, Skipped: false, c.RunId));
     }
 
     private async Task RunAsync(Capture c)
@@ -496,11 +529,12 @@ public sealed class CaptureCoordinator(
                 return;
             }
             lock (_gate) _startSnapshots[c.RunId] = target;
-            var progress = overlay is null ? null : new OverlayProgress(overlay, time);
+            var progress = new HoldProgress(this, c, overlay is null ? null : new OverlayProgress(overlay, time));
             // Read when the run finishes: a cold Bluetooth mic's first buffer can come after the pipeline has started.
             var live = c.Live!;
             MicTiming Mic() => new(live.FirstAudioAt is { } at ? (long)time.GetElapsedTime(c.StartedAt, at).TotalMilliseconds : null, live.Kind, live.MicStart);
-            var request = new RunRequest(live, c.Mode, target?.ProcessName, c.Intent.Task, progress, c.RunId, c.Context.Task, Profiles.For(target), Mic);
+            var request = new RunRequest(live, c.Mode, target?.ProcessName, c.Intent.Task, progress, c.RunId, c.Context.Task, Profiles.For(target), Mic,
+                DetectCommand: true);
             var result = await pipeline.RunAsync(request, c.Cts.Token);
             OnCompleted(c, result);
         }
@@ -525,8 +559,8 @@ public sealed class CaptureCoordinator(
         if (!c.Shown) Show();
         if (c.PendingError is not null) return;
         c.Live?.Stop();
+        // The context waits for the transcript: only a spoken Prompt or Reply reads it (OnModeResolved).
         c.Intent.TrySetResult(new RunIntent(c.Mode, commit.ShiftHeld));
-        if (!c.ContextStarted) c.Context.TrySetResult(null); // never in Prompt or Reply: nothing to wait for
         _processing = c;
         _current = null;
         sounds.Play(SoundKind.Stop);
@@ -581,6 +615,8 @@ public sealed class CaptureCoordinator(
 
     private void OnCompleted(Capture c, RunResult? result)
     {
+        // A run that ended before its mode was known (no speech, a failed upload) never needed it.
+        c.Context.TrySetResult(null);
         if (result is not null)
         {
             lastResult?.Record(result, c.ResultGeneration);
@@ -644,11 +680,24 @@ public sealed class CaptureCoordinator(
         public Notice? PendingError { get; set; }
         public Task<TargetSnapshot>? Snapshot { get; set; }
         public TaskCompletionSource<RunIntent> Intent { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        /// <summary>Completed once the mode is known: the context for a Prompt or Reply, null for anything else.</summary>
         public TaskCompletionSource<CapturedContext?> Context { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        public bool ContextStarted { get; set; }
+
+        /// <summary>The selection read during the hold; null when there's no reader.</summary>
+        public Task<CapturedContext?>? Selection { get; set; }
         public CancellationTokenSource Cts { get; } = new();
         public Task? Run { get; set; }
         public bool Shown { get; set; }
         public bool Latched { get; set; }
+    }
+
+    /// <summary>A hold's progress: the coordinator hears the resolved mode first, then the overlay hears everything.</summary>
+    private sealed class HoldProgress(CaptureCoordinator owner, Capture capture, IProgress<PipelineEvent>? inner) : IProgress<PipelineEvent>
+    {
+        public void Report(PipelineEvent value)
+        {
+            if (value is ModeResolved resolved) owner.OnModeResolved(capture, resolved);
+            inner?.Report(value);
+        }
     }
 }

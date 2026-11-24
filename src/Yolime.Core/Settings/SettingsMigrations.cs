@@ -5,7 +5,26 @@ namespace Yolime.Core.Settings;
 /// <summary>One step per schema version: <c>steps[n]</c> turns a version-n document into version n+1.</summary>
 public static class SettingsMigrations
 {
-    internal static readonly IReadOnlyDictionary<int, Action<JsonObject>> Steps = new Dictionary<int, Action<JsonObject>>();
+    internal static readonly IReadOnlyDictionary<int, Action<JsonObject>> Steps = new Dictionary<int, Action<JsonObject>>
+    {
+        [1] = SpokenModes,
+    };
+
+    /// <summary>
+    /// 1 → 2: modes are spoken, not picked before the hold. The starting modes go (every hold is Dictate), the Shift
+    /// cue setting carries over as the spoken-command cue, and the next start says once what changed.
+    /// </summary>
+    private static void SpokenModes(JsonObject doc)
+    {
+        doc.Remove("startingMode");
+        doc.Remove("appStartingModes");
+        if (doc["modeCycleCues"] is { } cues)
+        {
+            doc.Remove("modeCycleCues");
+            doc["commandCues"] = cues.DeepClone();
+        }
+        doc["spokenModesNoticePending"] = true;
+    }
 
     public static JsonObject Migrate(JsonObject doc, int from) => Migrate(doc, from, SettingsStore.CurrentSchemaVersion, Steps);
 

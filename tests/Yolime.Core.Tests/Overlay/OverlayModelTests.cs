@@ -72,7 +72,7 @@ public class OverlayModelTests
         Assert.StartsWith("Replying to: 'Are we still on for lunch", v.Detail);
         Assert.EndsWith("(copied 12 s ago)", v.Detail);
         Assert.True(v.Detail!.Length < 110);
-        Assert.Equal("No context", _m.Apply(new ContextShown(null, null, 0, Skipped: false)).Detail);
+        Assert.Equal("No message found: writing from your words", _m.Apply(new ContextShown(null, null, 0, Skipped: false)).Detail);
         Assert.Contains("skipped", _m.Apply(new ContextShown(null, null, 0, Skipped: true)).Detail);
     }
 
