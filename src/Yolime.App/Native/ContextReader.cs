@@ -51,17 +51,24 @@ internal sealed class ContextReader(ClipboardGuard clipboard, ClipboardFreshness
         return null;
     }
 
-    /// <summary>A fresh user copy, read only once the run is known to be a Prompt or Reply.</summary>
-    public async Task<CapturedContext?> ReadClipboardAsync(CancellationToken ct)
+    /// <summary>The sequence number only: the clipboard isn't opened until the run is known to be a Prompt or Reply.</summary>
+    public ClipboardMark MarkClipboard()
+    {
+        var sequence = User32.GetClipboardSequenceNumber();
+        return new ClipboardMark(sequence, freshness.UserCopyAgeMs(sequence));
+    }
+
+    /// <summary>The copy the hold saw, read only once the run is known to be a Prompt or Reply.</summary>
+    public async Task<CapturedContext?> ReadClipboardAsync(ClipboardMark mark, CancellationToken ct)
     {
         try
         {
-            // Checked before the open as well: nothing in yolime may read its own pending paste (an offered copy
-            // would be rendered by the read), and only a fresh user copy is ever context.
-            if (freshness.UserCopyAgeMs(User32.GetClipboardSequenceNumber()) is null) return null;
+            // Fresh at the hold, and still the same copy: nothing in yolime may read its own pending paste (an
+            // offered copy would be rendered by the read), and a copy made after the hold isn't what was replied to.
+            if (mark.AgeMs is not { } age || User32.GetClipboardSequenceNumber() != mark.Sequence) return null;
             var (text, sequence, sensitive) = await clipboard.ReadTextAsync(ct);
-            // A password manager's copy is never context, and a copy the user didn't just make is stale.
-            if (sensitive || string.IsNullOrEmpty(text) || freshness.UserCopyAgeMs(sequence) is not { } age) return null;
+            // A password manager's copy is never context.
+            if (sensitive || string.IsNullOrEmpty(text) || sequence != mark.Sequence) return null;
             return new CapturedContext(text.Length > MaxChars ? text[..MaxChars] : text, ContextSource.Clipboard, age);
         }
         catch (IOException ex)

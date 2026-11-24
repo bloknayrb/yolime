@@ -143,6 +143,9 @@ public sealed class SpokenCommandTests : IDisposable
         Assert.Equal(RunOutcome.RewriteFailed, result.Outcome);
         Assert.Empty(_rig.Sink.Delivered); // no empty transcript pasted as a "fallback"
         Assert.NotNull(Notices.For(result));
+        // The card offers Retry, and the tray's Retry last failed finds it.
+        Assert.True(Yolime.Core.Overlay.RunRetry.IsRetryable(result));
+        Assert.Equal(result.HistoryId, _rig.History.LatestRetryable()?.Id);
 
         _rig.Rewriter = _rewriter;
         var again = await _rig.Build().RunFromTranscriptAsync(result.HistoryId!.Value, null, CancellationToken.None);

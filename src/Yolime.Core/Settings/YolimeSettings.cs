@@ -57,8 +57,8 @@ public sealed record YolimeSettings
     public bool CommandCues { get; set; } = true;
 
     /// <summary>
-    /// Set by the schema-2 migration for someone who used Shift-cycled modes: the next start says once that modes are
-    /// now spoken, then clears it. Never set for a new install.
+    /// Set by the schema-2 migration, so anyone upgrading from Shift-cycled modes is told once at the next start that
+    /// modes are now spoken; then cleared. Never set for a new install.
     /// </summary>
     public bool SpokenModesNoticePending { get; set; }
 

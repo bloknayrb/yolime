@@ -358,10 +358,18 @@ public sealed class CaptureCoordinatorTests : IDisposable
             return Throw is { } ex ? Task.FromException<CapturedContext?>(ex) : Task.FromResult(Result);
         }
 
-        public Task<CapturedContext?> ReadClipboardAsync(CancellationToken ct)
+        public int Marks;
+
+        public ClipboardMark MarkClipboard()
+        {
+            Interlocked.Increment(ref Marks);
+            return new ClipboardMark(7, Clipboard?.AgeMs);
+        }
+
+        public Task<CapturedContext?> ReadClipboardAsync(ClipboardMark mark, CancellationToken ct)
         {
             Interlocked.Increment(ref ClipboardCalls);
-            return Task.FromResult(Clipboard);
+            return Task.FromResult(mark.Sequence == 7 ? Clipboard : null);
         }
     }
 
@@ -665,6 +673,45 @@ public sealed class CaptureCoordinatorTests : IDisposable
         Assert.Equal(Mode.Dictate, row.Mode);
         Assert.Null(row.Context);
         Assert.Empty(_cues);
+    }
+
+    [Fact]
+    public async Task ACopyThatWasStaleAtTheHold_IsNeverRead()
+    {
+        // Freshness is judged when the hold starts, not after a long recording and STT.
+        _rig.Stt.Text = "Write a reply. Sounds good";
+        var stale = new FakeContextStale();
+        var fake = Rewriting(); // rebuilds with the shared reader: replace it with the stale one
+        _c = new CaptureCoordinator(_rig.Build(), _device, _targets, _rig.Stt, _rig.History, _notes, new Sounds(_sounds, _cues),
+            act => act(_machine), _rig.Time, _rig.Log, stale, () => _rig.Settings);
+        Input(HotkeyKind.HoldDown, 0);
+        _device.Last!.Speak();
+        Input(HotkeyKind.Tick, 300);
+        Input(HotkeyKind.HoldUp, 1500);
+        await WaitIdle();
+        Assert.Equal(1, stale.Marks);
+        Assert.Equal(0, stale.Reads);
+        Assert.Null(Assert.Single(fake.Requests).Context);
+    }
+
+    private sealed class FakeContextStale : IContextReader
+    {
+        public int Marks;
+        public int Reads;
+
+        public Task<CapturedContext?> ReadSelectionAsync(CancellationToken ct) => Task.FromResult<CapturedContext?>(null);
+
+        public ClipboardMark MarkClipboard()
+        {
+            Interlocked.Increment(ref Marks);
+            return new ClipboardMark(3, null);
+        }
+
+        public Task<CapturedContext?> ReadClipboardAsync(ClipboardMark mark, CancellationToken ct)
+        {
+            Interlocked.Increment(ref Reads);
+            return Task.FromResult<CapturedContext?>(new("old copy", ContextSource.Clipboard, 200_000));
+        }
     }
 
     [Theory]

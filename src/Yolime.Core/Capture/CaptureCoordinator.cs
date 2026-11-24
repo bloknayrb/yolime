@@ -69,8 +69,22 @@ public interface IContextReader
 {
     Task<CapturedContext?> ReadSelectionAsync(CancellationToken ct);
 
-    Task<CapturedContext?> ReadClipboardAsync(CancellationToken ct);
+    /// <summary>
+    /// Which copy is on the clipboard when the hold starts, and how old it is then, without opening the clipboard
+    /// (only its sequence number is read). Freshness is judged at the hold, not after a long recording and STT.
+    /// </summary>
+    ClipboardMark MarkClipboard();
+
+    /// <summary>
+    /// The copy <paramref name="mark"/> saw, if it was a fresh user copy then and is still on the clipboard: a copy
+    /// made after the hold (while STT ran) is never taken for the message being replied to.
+    /// </summary>
+    Task<CapturedContext?> ReadClipboardAsync(ClipboardMark mark, CancellationToken ct);
 }
+
+/// <param name="Sequence">The clipboard's sequence number at the hold.</param>
+/// <param name="AgeMs">The copy's age then, or null when it wasn't a fresh user copy.</param>
+public readonly record struct ClipboardMark(uint Sequence, long? AgeMs);
 
 /// <summary>
 /// Turns what the hold machine decides into dictation runs. The mic opens at key-down, but nothing touches disk or
@@ -432,6 +446,14 @@ public sealed class CaptureCoordinator(
     {
         if (contextReader is null) return;
         var reader = contextReader;
+        try
+        {
+            c.ClipboardMark = reader.MarkClipboard();
+        }
+        catch (Exception ex)
+        {
+            log.Write(LogEvent.StageFailed, LogField.Tag("stage", Stage.Rewrite), LogField.Error(ex));
+        }
         c.Selection = Task.Run(async () =>
         {
             try
@@ -470,7 +492,7 @@ public sealed class CaptureCoordinator(
             try
             {
                 context = c.Selection is { } selection ? await selection : null;
-                context ??= await reader.ReadClipboardAsync(c.Cts.Token);
+                if (context is null && c.ClipboardMark is { AgeMs: not null } mark) context = await reader.ReadClipboardAsync(mark, c.Cts.Token);
             }
             catch (Exception ex)
             {
@@ -685,6 +707,9 @@ public sealed class CaptureCoordinator(
 
         /// <summary>The selection read during the hold; null when there's no reader.</summary>
         public Task<CapturedContext?>? Selection { get; set; }
+
+        /// <summary>The clipboard's copy at the hold, read only if the run becomes a Prompt or Reply.</summary>
+        public ClipboardMark? ClipboardMark { get; set; }
         public CancellationTokenSource Cts { get; } = new();
         public Task? Run { get; set; }
         public bool Shown { get; set; }

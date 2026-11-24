@@ -150,6 +150,8 @@ public sealed class HistoryStore : IHistoryStore, IDisposable
         $"WHERE (outcome IN ({string.Join(",", RetryableOutcomes.Select(o => $"'{o}'"))}) AND pending_audio_file IS NOT NULL AND audio_expired = 0) "
         // A Prompt or Reply whose rewrite failed went to the clipboard as raw text: its transcript can be rewritten again.
         + $"OR (outcome = '{RunOutcome.CompletedWithFallback}' AND rewrite_error IS NOT NULL AND raw_text IS NOT NULL AND mode IN ('{Mode.Prompt}', '{Mode.Reply}')) "
+        // "Write a reply" alone, drafted from its context, whose rewrite failed: there was nothing to fall back to.
+        + $"OR (outcome = '{RunOutcome.RewriteFailed}' AND raw_text IS NOT NULL AND context IS NOT NULL AND mode = '{Mode.Reply}') "
         + "ORDER BY started_ms DESC, id DESC LIMIT 1"));
 
     public int MarkInterrupted() => Write(() =>
